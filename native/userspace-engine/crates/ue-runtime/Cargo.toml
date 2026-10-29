@@ -1,0 +1,21 @@
+[package]
+name = "ue-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ue-abi = { path = "../ue-abi" }
+ue-core = { path = "../ue-core" }
+ue-platform = { path = "../ue-platform" }
+
+[features]
+entry-probe = []
+
+[[bin]]
+name = "ue-entry-probe"
+path = "src/bin/entry-probe.rs"
+required-features = ["entry-probe"]
+test = false
+bench = false

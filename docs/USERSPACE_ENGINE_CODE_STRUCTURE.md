@@ -2,18 +2,19 @@
 
 2026-10-29. [기본 설계](USERSPACE_ENGINE_DESIGN.md)와
 [실행 계약](USERSPACE_ENGINE_EXECUTION.md)을 구현할 파일 경계, 내부 인터페이스,
-상태 소유권과 검증 순서로 구체화한다. 아래 경로와 코드 선언은 **구현 전 명세**다.
-이번 변경은 Cargo workspace, 실행 파일, APK 설정이나 빈 구현 stub을 추가하지 않는다.
+상태 소유권과 검증 순서로 구체화한다. 아래 경로와 코드 선언은 **전체 구현 명세**다.
+실제 workspace에는 초기 네 crate와 entry probe가 있으며, 전체 명세가 구현된 것은
+아니다. 현재 코드·검증·설계 조정은 [구현 현황](USERSPACE_ENGINE_IMPLEMENTATION.md)을 따른다.
 
 ## 1. 코드 배치와 빌드 경계
 
 엔진 소스는 `native/userspace-engine/`에 독립 Cargo workspace로 둔다.
-현재 저장소에는 이 workspace가 없으며 기존 `guest/droid-*` Cargo 프로젝트나
-`tools/direct-linux`를 부모·기반 구현으로 삼지 않는다. Android 제품 연결은
+기존 `guest/droid-*` Cargo 프로젝트나 `tools/direct-linux`를 부모·기반 구현으로
+삼지 않는다. Android 제품 연결은
 기존 `:android-runtime` 안에 두고 새 RuntimeKind나 Gradle 제품 모듈을 만들지 않는다.
 
 ```text
-native/userspace-engine/                # 제안하는 신규 소스 루트
+native/userspace-engine/                # 전체 계획; 일부만 구현됨
   Cargo.toml                           # 독립 workspace, product/dev 의존성 분리
   Cargo.lock
   crates/

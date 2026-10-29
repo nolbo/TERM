@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "date": "2026-10-29",
+  "scope": "single-thread ARM64 entry fixture, not a distribution engine or performance superiority benchmark",
+  "toolchain": "rustc 1.89.0",
+  "unit_tests": {
+    "passed": 11,
+    "failed": 0
+  },
+  "kernel_uapi_layout_check": "passed",
+  "artifact_checks": "static ELF; no interpreter/dynamic/TLS/undefined symbols; no WX segments; 16KiB PT_LOAD alignment",
+  "host": {
+    "arch": "aarch64",
+    "page_size": 4096,
+    "inherited_seccomp_mode": 2,
+    "binary_sha256": "ee60a87dcadbd0d417883512ded7c58827197f9ac171da5adce3263591fc6dbb",
+    "result": {
+      "status": "pass",
+      "iterations": 10000,
+      "native_ns": 2025686,
+      "connected_ns": 3300770,
+      "trap_ns": 20406222,
+      "traps": 10006
+    }
+  },
+  "android": {
+    "sdk": 35,
+    "target_sdk": 35,
+    "environment": "redroid",
+    "selinux": "Disabled",
+    "launch": "separate APK instrumentation through Zygote",
+    "page_size": 4096,
+    "inherited_seccomp_mode": 0,
+    "binary_sha256": "484cda5f98cad24705740c462f1cbd6406435e7d59032075747b736f255273c8",
+    "entry_result": {
+      "status": "pass",
+      "iterations": 10000,
+      "native_ns": 3391692,
+      "connected_ns": 2576649,
+      "trap_ns": 18276824,
+      "traps": 10006
+    },
+    "instrumentation_code": 1,
+    "platform_precondition": "FAILED: requires app seccomp mode 2"
+  },
+  "checks": [
+    "read-inherited-seccomp-mode",
+    "unmodified-wrapper",
+    "connected-wrapper",
+    "connected-identity",
+    "native-register-sample",
+    "trap-return-and-exact-gate",
+    "trap-identity",
+    "trap-gpr-nzcv-fpsimd-sample",
+    "connected-without-signal",
+    "pipe-create",
+    "connected-write-trap-read",
+    "efault-without-pointer-dereference",
+    "connected-loop-no-traps",
+    "trap-loop-exact-count",
+    "additional-filter-install",
+    "gate-respects-other-filter"
+  ],
+  "limitations": [
+    "Single timing sample, fixed execution order, no p95/CPU/PSS/power comparison",
+    "No accelerated PRoot comparison yet",
+    "No enforcing Android or 16KiB execution evidence",
+    "No guest ELF loading, thread/signal compatibility, exec handoff, VFS, package-manager or product integration"
+  ],
+  "goal": {
+    "compatibility_superiority": "not_evaluated",
+    "performance_superiority": "not_evaluated",
+    "g0": "incomplete"
+  }
+}

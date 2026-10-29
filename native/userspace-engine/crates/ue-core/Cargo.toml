@@ -1,0 +1,9 @@
+[package]
+name = "ue-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+ue-abi = { path = "../ue-abi" }

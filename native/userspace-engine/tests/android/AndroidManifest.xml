@@ -1,0 +1,8 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dev.terminal.ueprobe" android:versionCode="1" android:versionName="1">
+    <uses-sdk android:minSdkVersion="31" android:targetSdkVersion="35" />
+    <application android:debuggable="true" android:extractNativeLibs="true"
+        android:label="Userspace engine entry probe" android:allowBackup="false" />
+    <instrumentation android:name="dev.terminal.ueprobe.EntryProbe"
+        android:targetPackage="dev.terminal.ueprobe" android:functionalTest="true" />
+</manifest>
