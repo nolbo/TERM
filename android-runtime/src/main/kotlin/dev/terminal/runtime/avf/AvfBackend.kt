@@ -7,19 +7,11 @@ import dev.terminal.runtime.api.RuntimeConfig
 import dev.terminal.runtime.api.RuntimeState
 import dev.terminal.runtime.api.StopMode
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -31,27 +23,20 @@ class AvfBackend(
     private val driver: AvfPlatformDriver,
 ) : RuntimeBackend {
     val startedNewVm: Boolean get() = driver.startedNewVm
-    private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-    fun observeEvents(): Flow<AvfPlatformEvent> = events.asSharedFlow()
+    /** Collection belongs to the Environment/service; maintenance backends start no observer. */
+    fun observeEvents(): Flow<AvfPlatformEvent> = driver.observeEvents().onEach { event ->
+        mutex.withLock {
+            state.value = when (event) {
+                is AvfPlatformEvent.Failed -> RuntimeState.Failed(event.reason)
+                AvfPlatformEvent.Stopped -> RuntimeState.Stopped
+                is AvfPlatformEvent.SharingUnavailable -> state.value
+            }
+        }
+    }
     suspend fun connectImageInitializer(): Result<GuestConnection> = driver.connectImageInitializer()
     private val mutex = Mutex()
     private val state = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
     private var config: RuntimeConfig? = null
-
-    init {
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch(start = CoroutineStart.UNDISPATCHED) {
-            driver.observeEvents().collect { event ->
-                mutex.withLock {
-                    state.value = when (event) {
-                        is AvfPlatformEvent.Failed -> RuntimeState.Failed(event.reason)
-                        AvfPlatformEvent.Stopped -> RuntimeState.Stopped
-                        is AvfPlatformEvent.SharingUnavailable -> state.value
-                    }
-                    events.tryEmit(event)
-                }
-            }
-        }
-    }
 
     override suspend fun prepare(config: RuntimeConfig): Result<Unit> = mutex.withLock {
         if (state.value !is RuntimeState.Stopped && state.value !is RuntimeState.Failed) {

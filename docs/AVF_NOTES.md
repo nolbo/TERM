@@ -1,5 +1,22 @@
 # AVF notes
 
+## Lifecycle and capacity corrections (2026-10-29)
+
+The ten findings from the follow-up review are addressed in the host and guest:
+
+1. Platform errors no longer suppress subsequent stop callbacks; failed stop proof retries in the owner’s existing recovery path.
+2. Explicit termination removes routing and parser state under the session lock; events require established ownership.
+3. Auxiliary connects leave the VM mutex and suspend on the existing bounded connector pool; the separate file executor is removed. Late or stale descriptors close.
+4. Session accept is nonblocking and transient resource failures defer only accept through poll.
+5. Cancelled, incomplete reconnection closes the replacement so it remains retryable.
+6. PTY children reset signal dispositions and masks before exec.
+7. Session admission fits LIST count/payload and child-resource limits; serialization failures remain RPC errors.
+8. TERMINATE and authoritative LIST retire identity mappings; pending replies use their original request identity.
+9. Backend event collection uses the service-owned observer, removing the anonymous backend scope.
+10. Owner retry jobs and backoff are independent, including stop-proof retries.
+
+There is no new daemon, connector pool or recovery service. Host changes require an APK update; guest accept, signal and capacity changes require an explicit verified component/image update. Installed disks are not replaced. Real AVF hardware is still required to validate crosvm callbacks and compare end-to-end performance with Userspace Linux.
+
 ## Direct session transport and independent PTYs (2026-10-28)
 
 This revision supersedes the guest relay design in the historical section below.

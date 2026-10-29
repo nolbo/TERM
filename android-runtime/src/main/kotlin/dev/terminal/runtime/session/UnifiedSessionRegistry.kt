@@ -49,7 +49,6 @@ class UnifiedSessionRegistry(
     private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any,
         val terminalReplies: dev.terminal.runtime.lifecycle.OrderedSessionInput, val lifetime: Job,
         val creation: Mutex = Mutex(),
-        val removed: MutableSet<String> = ConcurrentHashMap.newKeySet(),
         var version: Long = 0, var query: Long = 0,
         var resourceJob: Job? = null, var resourceCheckedAt: Long = 0,
         var resourceUnsupported: Boolean = false, var resources: dev.terminal.protocol.GuestResourceUsage? = null)
@@ -123,21 +122,17 @@ class UnifiedSessionRegistry(
                     is SessionEvent.Resized -> event.sessionId
                     is SessionEvent.OutputGap -> event.sessionId
                 }
-                if (sessionId in registration.removed) return@collect
+                if (owners[sessionId] != key) registration.creation.withLock { }
+                if (owners[sessionId] != key) return@collect
                 if (event is SessionEvent.Resized) {
                     pendingResizes[sessionId]?.takeIf { it === event.barrier }?.let { pending ->
                         applyResize(sessionId, pending, event.rows.toInt(), event.cols.toInt())
                     }
                     return@collect
                 }
-                owners.putIfAbsent(sessionId, key)
-                if (sessionId in registration.removed) {
-                    owners.remove(sessionId, key)
-                    return@collect
-                }
                 if (event is SessionEvent.OutputGap) {
                     if (terminalStates.identity(sessionId) == null) registration.creation.withLock { }
-                    if (registrations[key] !== registration || sessionId in registration.removed) return@collect
+                    if (registrations[key] !== registration || owners[sessionId] != key) return@collect
                     controlStreams[sessionId]?.discardPartialSequence()
                     terminalStates.withSession(sessionId) { terminalStates.outputGap(sessionId) }
                     mutableEvents.emit(event)
@@ -145,14 +140,17 @@ class UnifiedSessionRegistry(
                     // CREATE may deliver its first output before the caller resumes. Only
                     // that new session waits for initialization; existing output keeps flowing.
                     if (terminalStates.identity(sessionId) == null) registration.creation.withLock { }
-                    if (registrations[key] !== registration || sessionId in registration.removed) return@collect
-                    val stream = controlStreams.getOrPut(sessionId) { dev.terminal.emulator.KittyControlStream() }
-                    val parts = stream.accept(event.bytes)
-                    keyboardFlags[sessionId] = stream.keyboard().flags()
+                    if (registrations[key] !== registration || owners[sessionId] != key) return@collect
+                    val parts = terminalStates.withSession(sessionId) {
+                        if (registrations[key] !== registration || owners[sessionId] != key) return@withSession null
+                        val stream = controlStreams.getOrPut(sessionId) { dev.terminal.emulator.KittyControlStream() }
+                        stream.accept(event.bytes).also { keyboardFlags[sessionId] = stream.keyboard().flags() }
+                    } ?: return@collect
                     for (part in parts) {
+                        if (owners[sessionId] != key) break
                         if (part.bytes != null) {
                             val (state, replies, activity) = terminalStates.withSession(sessionId) {
-                                if (sessionId in registration.removed) return@withSession Triple(null, emptyList<ByteArray>(), emptyList<String>())
+                                if (owners[sessionId] != key) return@withSession Triple(null, emptyList<ByteArray>(), emptyList<String>())
                                 val replies = terminalStates.output(sessionId, part.bytes)
                                 Triple(terminalStates.identity(sessionId), replies, terminalStates.takeActivity(sessionId))
                             }
@@ -171,7 +169,7 @@ class UnifiedSessionRegistry(
                 } else {
                     if (event is SessionEvent.Exited) {
                         listMutex.withLock {
-                            if (sessionId in registration.removed) return@collect
+                            if (owners[sessionId] != key) return@collect
                             if (registrations[key] === registration) {
                                 registration.version++
                                 lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.map {
@@ -275,15 +273,15 @@ class UnifiedSessionRegistry(
                     Result.success(lastKnownSessions[key].orEmpty())
                 else {
                     val ids = current.mapTo(mutableSetOf()) { it.id }
-                    removed = lastKnownSessions[key].orEmpty().map { it.id }.filter { it !in ids }
-                    registration.removed.addAll(removed)
+                    removed = (lastKnownSessions[key].orEmpty().map { it.id } + owners.filterValues { it == key }.keys)
+                        .distinct().filter { it !in ids }
                     Result.success(rememberSessions(key, current))
                 }
             }
             // RPCs and per-session cleanup never hold the global publication lock.
             discardSessions(removed)
             result.getOrNull().orEmpty().forEach { session -> terminalStates.withSession(session.id) {
-                if (registrations[key] === registration && owners[session.id] == key && session.id !in registration.removed) {
+                if (registrations[key] === registration && owners[session.id] == key && owners[session.id] == key) {
                     terminalStates.create(session.id, session.cols.toInt(), session.rows.toInt())
                     if (session.state == dev.terminal.protocol.SessionStatus.EXITED) terminalStates.exited(session.id, session.exitCode)
                 }
@@ -656,18 +654,26 @@ class UnifiedSessionRegistry(
             onSuccess = { owner -> owner.terminate(sessionId, signal) },
             onFailure = { Result.failure(it) },
         ).onSuccess {
-            listMutex.withLock {
-                if (registrations[key] !== registration) return@onSuccess
-                registration?.let { it.version++ }
-                inputSessions.remove(sessionId)
-                failResize(sessionId)
-                lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
-                owners.remove(sessionId, key)
-                launches.remove(sessionId)
-                controlStreams.remove(sessionId)
-                keyboardFlags.remove(sessionId)
+            val removed = terminalStates.withSession(sessionId) {
+                val current = listMutex.withLock {
+                    if (registrations[key] !== registration) false else {
+                        registration?.let { it.version++ }
+                        inputSessions.remove(sessionId)
+                        failResize(sessionId)
+                        lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
+                        owners.remove(sessionId, key)
+                        true
+                    }
+                }
+                if (current) {
+                    launches.remove(sessionId)
+                    controlStreams.remove(sessionId)
+                    keyboardFlags.remove(sessionId)
+                    terminalStates.remove(sessionId)
+                }
+                current
             }
-            terminalStates.withSession(sessionId) { terminalStates.remove(sessionId) }
+            if (removed) onRemoved(listOf(sessionId))
         }
     }
 

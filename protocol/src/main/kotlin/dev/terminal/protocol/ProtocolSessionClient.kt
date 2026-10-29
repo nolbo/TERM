@@ -70,7 +70,9 @@ class ProtocolSessionClient(
     private val identities = sessionNamespace?.let(::SessionIdentities)
     private val disconnectFailure = AtomicReference<Throwable?>()
     private val nextRequestId = AtomicLong(1)
-    private val pending = ConcurrentHashMap<Long, CompletableDeferred<Result<SessionResponse>>>()
+    private data class PendingRequest(val result: CompletableDeferred<Result<SessionResponse>>,
+        val request: SessionRequest, val wire: SessionRequest)
+    private val pending = ConcurrentHashMap<Long, PendingRequest>()
     private val resizeBarriers = ConcurrentHashMap<Long, Pair<SessionRequest.Resize, Any>>()
     override val supportsOrderedResize = true
     private val mutableEvents = MutableSharedFlow<SessionEvent>()
@@ -162,7 +164,7 @@ class ProtocolSessionClient(
         if (!disconnectFailure.compareAndSet(null, reason)) return
         runCatching { onDiagnostic(diagnostic, reason) }
         mutableConnectionState.value = SessionConnectionState.DISCONNECTED
-        pending.values.forEach { it.completeExceptionally(reason) }
+        pending.values.forEach { it.result.completeExceptionally(reason) }
         pending.clear()
         resizeBarriers.clear()
         eventBuffer.close()
@@ -188,9 +190,11 @@ class ProtocolSessionClient(
         if (transport.linkState?.value == SessionConnectionState.RECOVERING)
             return@coroutineScope Result.failure(ProtocolRecoveringException())
         val requestId = nextRequestId.getAndIncrement()
+        val wireRequest: SessionRequest
         val requestFrame = try {
+            wireRequest = identities?.request(request) ?: request
             ProtocolFrame(service = Service.SESSION, kind = FrameKind.REQUEST, requestId = requestId,
-                payload = SessionPayloadCodec.encode(identities?.request(request) ?: request))
+                payload = SessionPayloadCodec.encode(wireRequest))
         } catch (error: Exception) {
             requestDiagnostic(request, requestId, "encode", started, error)
             return@coroutineScope Result.failure(error)
@@ -200,7 +204,7 @@ class ProtocolSessionClient(
         // CREATE establishes the identity needed to initialize output; an
         // abandoned CREATE must reconcile through a fresh owner attachment.
         val needsReconciliation = request is SessionRequest.Create || resizeBarrier != null
-        pending[requestId] = waiting
+        pending[requestId] = PendingRequest(waiting, request, wireRequest)
         if (request is SessionRequest.Resize && resizeBarrier != null) resizeBarriers[requestId] = request to resizeBarrier
         // The deadline runs independently of a possibly blocked send. Closing the
         // socket before joining the sender is what wakes a native vsock write.
@@ -305,10 +309,11 @@ class ProtocolSessionClient(
                 if (mapped != null) publishEvent(mapped)
             }
             FrameKind.RESPONSE, FrameKind.ERROR -> {
-                val waiting = pending[frame.requestId] ?: return
+                val pendingRequest = pending[frame.requestId] ?: return
+                val waiting = pendingRequest.result
                 val decoded = runCatching {
                     when (frame.kind) {
-                        FrameKind.RESPONSE -> SessionResponseCodec.decode(frame.payload).let { identities?.response(it) ?: it }
+                        FrameKind.RESPONSE -> SessionResponseCodec.decode(frame.payload).let { identities?.response(it, pendingRequest.request, pendingRequest.wire) ?: it }
                         else -> throw GuestRequestException(ProtocolErrorCodec.decode(frame.payload))
                     }
                 }

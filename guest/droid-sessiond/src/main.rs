@@ -23,7 +23,7 @@ fn main() {
     }
     if std::env::args().any(|argument| argument == "--self-check") {
         let mut sessions = SessionRegistry::default();
-        let session = sessions.create_shell("/bin/sh", "/home/user", 24, 80);
+        let session = sessions.create_shell("/bin/sh", "/home/user", 24, 80).expect("demo session capacity");
         let frame = Frame {
             service: Service::Session,
             kind: FrameKind::Response,

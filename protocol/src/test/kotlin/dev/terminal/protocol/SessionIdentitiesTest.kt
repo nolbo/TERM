@@ -21,6 +21,26 @@ class SessionIdentitiesTest {
         val session = (identities.response(SessionResponse.Created(descriptor(123))) as SessionResponse.Created).session
         assertEquals(listOf(SessionEvent.OutputGap(session.id, -1)), identities.identifiedEvents())
     }
+    @Test fun terminatedAndAbsentIdentitiesAreRetiredWhilePendingRepliesKeepTheirOriginalIdentity() {
+        val identities = SessionIdentities("boot")
+        repeat(10_000) { index ->
+            val guest = descriptor(index.toLong()).copy(id = "session-$index")
+            val created = (identities.response(SessionResponse.Created(guest)) as SessionResponse.Created).session
+            val write = SessionRequest.Write(created.id, byteArrayOf(1))
+            val wire = identities.request(write)
+            identities.response(SessionResponse.Terminating(guest.id))
+            assertThrows(ProtocolRequestException::class.java) { identities.request(write) }
+            assertEquals(SessionResponse.Written(created.id, 1), identities.response(SessionResponse.Written(guest.id, 1), write, wire))
+        }
+        val created = (identities.response(SessionResponse.Created(descriptor(99))) as SessionResponse.Created).session
+        identities.response(SessionResponse.Listed(emptyList()))
+        assertThrows(ProtocolRequestException::class.java) { identities.request(SessionRequest.Attach(created.id)) }
+        for (name in listOf("toGuest", "toHost")) {
+            val field = SessionIdentities::class.java.getDeclaredField(name).apply { isAccessible = true }
+            assertTrue((field.get(identities) as Map<*, *>).isEmpty())
+        }
+    }
+
     private fun descriptor(time: Long) = SessionDescriptor("session-1", "Shell", "/bin/sh", "/", time, 24u, 80u, SessionStatus.RUNNING)
 
     @Test fun environmentAndCreationIdentityFenceReusedGuestCounters() {

@@ -84,6 +84,18 @@ impl VsockListener {
 
     pub fn raw_fd(&self) -> std::os::fd::RawFd { self.socket.as_raw_fd() }
 
+    // Other guest services use blocking accept; only the session poll owner opts in.
+    pub fn enable_nonblocking(&self) -> Result<(), VsockError> {
+        let flags = unsafe { nix::libc::fcntl(self.raw_fd(), nix::libc::F_GETFL) };
+        if flags < 0 || unsafe { nix::libc::fcntl(self.raw_fd(), nix::libc::F_SETFL, flags | nix::libc::O_NONBLOCK) } < 0 {
+            return Err(Errno::last().into());
+        }
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn test_listener(socket: OwnedFd) -> Self { Self { socket } }
+
     pub fn accept(&self) -> Result<VsockConnection, VsockError> {
         let mut address = SockaddrVm {
             family: 0, reserved: 0, port: 0, cid: 0, zero: [0; 4],

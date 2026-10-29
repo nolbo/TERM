@@ -4,7 +4,6 @@ import android.content.Context
 import android.os.SystemClock
 import android.util.Log
 import android.system.virtualmachine.VirtualMachine
-import android.system.virtualmachine.VirtualMachineCallback
 import android.system.virtualmachine.VirtualMachineConfig
 import android.system.virtualmachine.VirtualMachineCustomImageConfig
 import android.system.virtualmachine.VirtualMachineManager
@@ -22,17 +21,17 @@ import dev.terminal.runtime.vsock.ParcelFileDescriptorFrameTransport
 import dev.terminal.runtime.vsock.ParcelFileDescriptorByteStream
 import java.nio.file.Paths
 import java.util.concurrent.Executor
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
-import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * AVF custom-image driver for a platform-signed AOSP product build.
@@ -120,7 +119,7 @@ class AospAvfPlatformDriver(
                 shareLeases.requireUnsharedReconnect(config.instanceId, vm.status == VirtualMachine.STATUS_STOPPED)
                 val token = Any()
                 activeBoot.set(token)
-                vm.setCallback(Executor { it.run() }, callback(boot, token, config.instanceId))
+                vm.setCallback(Executor { it.run() }, avfCallback(boot, { activeBoot.get() === token }, config.instanceId, ::markMachineStopped, events::tryEmit))
                 machine = vm
                 if (vm.status == VirtualMachine.STATUS_STOPPED) {
                     releaseStoppedShares(config.instanceId)
@@ -232,93 +231,99 @@ class AospAvfPlatformDriver(
         }
     }
 
-    override suspend fun connectGuestAgent(): Result<GuestConnection> {
-        val pending = mutex.withLock {
-            pendingSessionConnection.getAndSet(null)
-        }
-        return pending?.let { Result.success(it) } ?: runCatching {
-            sessionConnection(mutex.withLock { checkNotNull(machine) { "VM is not running" } })
-        }
+    override suspend fun connectGuestAgent(): Result<GuestConnection> = connectionResult {
+        mutex.withLock { pendingSessionConnection.getAndSet(null) }
+            ?: withActiveMachine { vm -> sessionConnection(vm) }
     }
 
-    private fun sessionConnection(vm: VirtualMachine): GuestConnection = if (sessionResumeVersion == 1) {
-        dev.terminal.runtime.vsock.ResumableGuestConnection(GUEST_CID_UNAVAILABLE,
-            connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
-            report = { event, code, error, details -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
-                event, prepared?.instanceId, code = code, error = error, details = details) })
+    private suspend fun sessionConnection(vm: VirtualMachine): GuestConnection = if (sessionResumeVersion == 1) {
+        // Installed relay images retain their bounded compatibility handshake.
+        kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+            dev.terminal.runtime.vsock.ResumableGuestConnection(GUEST_CID_UNAVAILABLE,
+                connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
+                report = { event, code, error, details -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
+                    event, prepared?.instanceId, code = code, error = error, details = details) })
+        }
     } else ParcelFileDescriptorFrameTransport(connectVsock(vm, DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)
     override suspend fun connectImageInitializer(): Result<GuestConnection> = connectGuestPort(40_503)
-
     override suspend fun connectGuestPortAgent(): Result<GuestConnection> = connectGuestPort(DROID_PORT_AGENT_PORT)
-    override suspend fun openGuestFileTransfer(): Result<GuestByteStream> = runCatching {
-        val activeMachine = mutex.withLock { checkNotNull(machine) { "VM is not running" } }
-        // A platform connect may block. Do not hold the VM lifecycle mutex or the
-        // caller's job while it does; a late descriptor is closed after cancellation.
-        suspendCancellableCoroutine<GuestByteStream> { continuation ->
-            try {
-                FILE_CONNECTORS.execute {
-                    try {
-                        val stream = ParcelFileDescriptorByteStream(connectVsock(activeMachine, 40_505))
-                        continuation.resume(stream) { _, acquired, _ -> acquired.close() }
-                    } catch (failure: Exception) { continuation.resumeWith(Result.failure(failure)) }
-                }
-            } catch (failure: java.util.concurrent.RejectedExecutionException) {
-                continuation.resumeWith(Result.failure(IllegalStateException("Guest file connections are busy; retry later", failure)))
-            }
-        }
-    }
+
+    override suspend fun openGuestFileTransfer(): Result<GuestByteStream> = openGuestStream(40_505)
 
     override suspend fun openGuestTcpForward(address: String, port: Int): Result<GuestByteStream> {
         require(port in 1..65_535 && dev.terminal.protocol.PortPayloadCodec.validAddress(address))
-        return mutex.withLock {
-            runCatching {
-                val activeMachine = checkNotNull(machine) { "VM is not running" }
-                val stream = ParcelFileDescriptorByteStream(connectVsock(activeMachine, 40_504))
+        return connectionResult {
+            withActiveMachine { vm ->
+                val stream = ParcelFileDescriptorByteStream(connectVsock(vm, 40_504))
                 try {
-                    val encoded = address.toByteArray(Charsets.US_ASCII)
-                    stream.output.write(byteArrayOf(1, (port shr 8).toByte(), port.toByte(), encoded.size.toByte()) + encoded)
-                    stream.output.flush()
+                    // Closing on cancellation also unblocks a native handshake write.
+                    withTimeout(PLATFORM_CONNECT_TIMEOUT_MS) {
+                        val completed = java.util.concurrent.atomic.AtomicBoolean(false)
+                        val closer = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                            try { kotlinx.coroutines.awaitCancellation() } finally { if (!completed.get()) stream.close() }
+                        }
+                        try {
+                            kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                                val encoded = address.toByteArray(Charsets.US_ASCII)
+                                stream.output.write(byteArrayOf(1, (port shr 8).toByte(), port.toByte(), encoded.size.toByte()) + encoded)
+                                stream.output.flush()
+                            }
+                            completed.set(true)
+                        } finally { closer.cancel() }
+                    }
                     stream
-                } catch (failure: Exception) { stream.close(); throw failure }
+                } catch (failure: Throwable) { stream.close(); throw failure }
             }
         }
     }
 
     override suspend fun openGuestPortForward(port: Int): Result<GuestByteStream> {
         require(port in 1024..65_535) { "Invalid guest forwarded port" }
-        return mutex.withLock {
-            runCatching {
-                val activeMachine = checkNotNull(machine) { "VM is not running" }
-                ParcelFileDescriptorByteStream(connectVsock(activeMachine, port.toLong()))
-            }
-        }
+        return openGuestStream(port.toLong())
     }
 
-    private suspend fun connectGuestPort(port: Long): Result<GuestConnection> = mutex.withLock {
-        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.connect", prepared?.instanceId, port.toString())
-        runCatching {
-            val activeMachine = checkNotNull(machine) { "VM is not running" }
-            withTimeout<GuestConnection>(GUEST_CONNECT_TIMEOUT_MS) {
+    private suspend fun openGuestStream(port: Long): Result<GuestByteStream> = connectionResult {
+        withActiveMachine { vm -> ParcelFileDescriptorByteStream(connectVsock(vm, port)) }
+    }
+
+    private suspend fun connectGuestPort(port: Long): Result<GuestConnection> = connectionResult {
+        withActiveMachine { vm ->
+            withTimeout(GUEST_CONNECT_TIMEOUT_MS) {
                 var connection: GuestConnection? = null
                 while (connection == null) {
-                    connection = runCatching {
-                        ParcelFileDescriptorFrameTransport(
-                            descriptor = connectVsock(activeMachine, port),
-                            guestCid = GUEST_CID_UNAVAILABLE,
-                        )
-                    }.getOrNull()
+                    connection = try { ParcelFileDescriptorFrameTransport(connectVsock(vm, port), GUEST_CID_UNAVAILABLE) }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }
                     if (connection == null) delay(GUEST_CONNECT_RETRY_MS)
                 }
                 connection
             }
-        }.onSuccess { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.connected", prepared?.instanceId, port.toString()) }
-            .onFailure { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.failed", prepared?.instanceId, port.toString(), it) }
+        }
     }
 
-    private fun connectVsock(vm: VirtualMachine, port: Long): android.os.ParcelFileDescriptor =
-        dev.terminal.runtime.vsock.GuestConnectionOpener.open(PLATFORM_CONNECT_TIMEOUT_MS) { vm.connectVsock(port) }
+    /** Only snapshot and commit hold the lifecycle lock, never a Binder connect or handshake. */
+    private suspend fun <T : AutoCloseable> withActiveMachine(connect: suspend (VirtualMachine) -> T): T {
+        val (vm, token) = mutex.withLock { checkNotNull(machine) { "VM is not running" } to activeBoot.get() }
+        val result = connect(vm)
+        try {
+            mutex.withLock { check(machine === vm && activeBoot.get() === token) { "AVF owner changed while connecting" } }
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            return result
+        } catch (failure: Throwable) { runCatching { result.close() }; throw failure }
+    }
+
+    private suspend fun <T> connectionResult(action: suspend () -> T): Result<T> = try { Result.success(action()) }
+        catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            Result.failure(java.io.IOException("Guest channel connection timed out", timeout))
+        }
+        catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) { Result.failure(failure) }
+
+    private suspend fun connectVsock(vm: VirtualMachine, port: Long): android.os.ParcelFileDescriptor =
+        dev.terminal.runtime.vsock.GuestConnectionOpener.openSuspending(PLATFORM_CONNECT_TIMEOUT_MS) { vm.connectVsock(port) }
 
     private fun buildConfig(config: RuntimeConfig): VirtualMachineConfig = requireAvfPlatformApi {
         val image = AvfImageLayout(Paths.get(config.imageDirectory))
@@ -361,52 +366,6 @@ class AospAvfPlatformDriver(
             .build()
     }
 
-    private fun callback(boot: AvfGuestBoot, token: Any, instanceId: String): VirtualMachineCallback {
-        val failureReported = AtomicBoolean(false)
-        return object : VirtualMachineCallback {
-            override fun onPayloadStarted(vm: VirtualMachine) {
-                if (activeBoot.get() === token) dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.payload.started", instanceId)
-            }
-
-            override fun onPayloadReady(vm: VirtualMachine) {
-                if (activeBoot.get() === token) dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.payload.ready", instanceId)
-            }
-
-            override fun onPayloadFinished(vm: VirtualMachine, exitCode: Int) {
-                if (activeBoot.get() !== token) return
-                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.payload.finished", instanceId, exitCode.toString())
-                markMachineStopped(vm, instanceId)
-                if (exitCode == 0) {
-                    boot.fail(IllegalStateException("Guest exited during boot"))
-                    events.tryEmit(AvfPlatformEvent.Stopped)
-                } else {
-                    val failure = IllegalStateException("Guest exited (code $exitCode)")
-                    boot.fail(failure)
-                    failureReported.set(true)
-                    events.tryEmit(AvfPlatformEvent.Failed(failure.message.orEmpty()))
-                }
-            }
-
-            override fun onError(vm: VirtualMachine, errorCode: Int, message: String) {
-                if (activeBoot.get() !== token) return
-                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.error", instanceId, errorCode.toString())
-                markMachineStopped(vm, instanceId)
-                val failure = IllegalStateException("AVF error $errorCode: $message")
-                boot.fail(failure)
-                failureReported.set(true)
-                events.tryEmit(AvfPlatformEvent.Failed(failure.message.orEmpty()))
-            }
-
-            override fun onStopped(vm: VirtualMachine, reason: Int) {
-                if (activeBoot.get() !== token) return
-                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.stopped", instanceId, reason.toString())
-                markMachineStopped(vm, instanceId)
-                boot.fail(IllegalStateException("AVF stopped (reason $reason)"))
-                if (!failureReported.get()) events.tryEmit(AvfPlatformEvent.Stopped)
-            }
-        }
-    }
-
     private fun markMachineStopped(stoppedMachine: VirtualMachine, instanceId: String) {
         // An error callback alone is not proof of stop. Keep a live/unknown VM's
         // Binder reference and let its session connection recover independently.
@@ -430,11 +389,6 @@ class AospAvfPlatformDriver(
     private fun vmName(config: RuntimeConfig): String = "droid-${config.instanceId}"
 
     private companion object {
-        // Bounded even when a platform binder call cannot be interrupted.
-        val FILE_CONNECTORS = java.util.concurrent.ThreadPoolExecutor(0, 2, 30, java.util.concurrent.TimeUnit.SECONDS,
-            java.util.concurrent.SynchronousQueue(), java.util.concurrent.ThreadFactory { task ->
-                Thread(task, "term-file-connect").apply { isDaemon = true }
-            })
         const val TAG = "TermAvfDriver"
         val VM_NAME = Regex("[A-Za-z0-9._-]{1,64}")
         const val MIN_MEMORY_MIB = 512

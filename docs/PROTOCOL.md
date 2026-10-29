@@ -379,6 +379,15 @@ leader. LIST and attachment retain exited history until explicit termination;
 an exited ID cannot restart a shell. Only live I/O or buffered parser work enters
 the loop; exited history with no pending work does not.
 Pending WRITE requests fail when their destination exits; they are never replayed.
+CREATE admission keeps LIST representable: at most 1,024 retained descriptors,
+including exited history, within the 1 MiB payload limit. At most 128 running or
+not-yet-reaped retired children are admitted; overload returns a normal GuestError
+before creating another PTY. Explicit close releases metadata capacity. Aggregate
+response size is also checked before framing, so oversize metadata cannot turn a
+request error into a transport disconnect. Session accept is nonblocking; resource
+pressure defers only accept through the existing poll timeout, while PTYs continue.
+Children reset signal dispositions and masks before exec, including SIGPIPE.
+
 Guest input is bounded to 1 MiB/64 packets per session and 4 MiB/256 packets total.
 Rejected user WRITE receives ERROR. Generated local graphics replies may be
 silently dropped under saturation, without terminating that or another session.
@@ -777,3 +786,10 @@ recreation retain the namespace; verified stop retires it. Descriptors establish
 identity before buffered early events are forwarded. The receive worker buffers
 at most 256 events / 256 KiB awaiting CREATE/LIST metadata, without blocking the
 response needed to identify them or adding a worker on the normal output path.
+
+Terminating responses retire both identity maps; authoritative LIST retires absent
+IDs and unknown early events. Pending acknowledgements retain the original request
+identity without retaining closed-session routing. The host registry accepts events
+only for CREATE/LIST-established ownership and serializes parser disposal with
+termination; late output cannot recreate ownership, parsers or terminal state.
+No unbounded removed-ID history is retained.

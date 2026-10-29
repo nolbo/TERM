@@ -12,6 +12,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineStart
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AvfBackendTest {
@@ -32,7 +33,9 @@ class AvfBackendTest {
 
         assertTrue(backend.prepare(RuntimeConfig(imageDirectory = "/images/debian")).isSuccess)
         assertTrue(backend.start().isSuccess)
+        val notice = async(start = CoroutineStart.UNDISPATCHED) { backend.observeEvents().first() }
         driver.events.emit(AvfPlatformEvent.Failed("VM stopped unexpectedly"))
+        notice.await()
 
         val state = withTimeout(1_000) {
             backend.observeState().first { it is RuntimeState.Failed }
@@ -72,13 +75,27 @@ class AvfBackendTest {
                 if (stopped) Result.success(Unit) else Result.failure(IllegalStateException("Unknown VM state"))
         })
         backend.prepare(RuntimeConfig(instanceId = "owner", imageDirectory = "/image")).getOrThrow(); backend.start().getOrThrow()
+        val notice = async(start = CoroutineStart.UNDISPATCHED) { backend.observeEvents().first() }
         events.events.emit(AvfPlatformEvent.Failed("VM lost"))
+        notice.await()
         withTimeout(1_000) { backend.observeState().first { it is RuntimeState.Failed } }
         assertTrue(backend.verifyStoppedInstance("owner").isFailure)
         assertTrue(backend.observeState().value is RuntimeState.Failed)
         stopped = true
         assertTrue(backend.verifyStoppedInstance("owner").isSuccess)
         assertTrue(backend.observeState().value is RuntimeState.Stopped)
+    }
+
+    @Test fun observationEndsWithItsCollectorWithoutStoppingTheVm() = runBlocking {
+        val driver = EventingDriver()
+        val backend = AvfBackend(driver)
+        assertEquals(0, driver.events.subscriptionCount.value)
+        val notice = async(start = CoroutineStart.UNDISPATCHED) { backend.observeEvents().first() }
+        assertEquals(1, driver.events.subscriptionCount.value)
+        notice.cancel(); notice.join()
+        assertEquals(0, driver.events.subscriptionCount.value)
+        assertTrue(backend.prepare(RuntimeConfig(imageDirectory = "/image")).isSuccess)
+        assertTrue(backend.start().isSuccess)
     }
 
     private object FailingDriver : AvfPlatformDriver {

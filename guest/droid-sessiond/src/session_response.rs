@@ -3,6 +3,8 @@
 
 use crate::session::{Session, SessionState};
 
+pub const MAX_SESSIONS: usize = 1024;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SessionStatus { Created, Running, Exited }
 
@@ -56,7 +58,7 @@ impl SessionResponse {
             }
             Self::Created(session) => { writer.byte(0x81); writer.descriptor(session)?; }
             Self::Listed(sessions) => {
-                if sessions.len() > 1024 { return Err(ResponseError::InvalidLength); }
+                if sessions.len() > MAX_SESSIONS { return Err(ResponseError::InvalidLength); }
                 writer.byte(0x82); writer.u16(sessions.len() as u16);
                 for session in sessions { writer.descriptor(session)?; }
             }
@@ -66,6 +68,7 @@ impl SessionResponse {
             Self::Written { session_id, accepted_bytes } => { writer.byte(0x86); writer.string(session_id)?; writer.i32(*accepted_bytes); }
             Self::Terminating(id) => { writer.byte(0x87); writer.string(id)?; }
         }
+        if writer.bytes.len() > crate::protocol::MAX_PAYLOAD_BYTES { return Err(ResponseError::InvalidLength); }
         Ok(writer.bytes)
     }
 }
@@ -90,5 +93,14 @@ impl Writer {
         self.i64(value.created_at_ms); self.u16(value.rows); self.u16(value.cols);
         self.byte(match value.state { SessionStatus::Created => 0, SessionStatus::Running => 1, SessionStatus::Exited => 2 });
         self.i32(value.exit_code); Ok(())
+    }
+}
+
+#[cfg(test)] mod limits_tests {
+    use super::*;
+    #[test] fn aggregate_payload_limit_is_enforced_before_frame_encoding() {
+        let session = SessionDescriptor { id: "session-1".into(), title: "Shell".into(), command: "x".repeat(4096),
+            cwd: "y".repeat(4096), created_at_ms: 0, rows: 24, cols: 80, state: SessionStatus::Running, exit_code: -1 };
+        assert!(matches!(SessionResponse::Listed(vec![session; 130]).encode(), Err(ResponseError::InvalidLength)));
     }
 }

@@ -46,6 +46,35 @@ class AvfSessionReconnectTest {
         } finally { release.complete(Unit); registry.close() }
     }
 
+    @Test fun ownerScopedRetryDoesNotWaitForAnotherOwnersBlockedPass() = runBlocking {
+        val slow = avfEnvironment(); val fast = avfEnvironment()
+        val registry = UnifiedSessionRegistry()
+        val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
+        val recovered = CompletableDeferred<Unit>()
+        var attempts = 0
+        try {
+            registry.register(slow, Controller("avf-slow").also { it.disconnect() })
+            registry.register(fast, Controller("avf-fast").also { it.disconnect() })
+            val blocked = async { reconnectAvfSessions(registry, { slow },
+                connect = { entered.complete(Unit); release.await(); Controller("avf-slow") },
+                onConnected = {}, storageIds = listOf(slow.storage.id)) }
+            entered.await()
+            val retry = async {
+                val backoff = ReconnectBackoff(listOf(1))
+                while (!recovered.isCompleted) {
+                    reconnectAvfSessions(registry, { fast },
+                        connect = { if (++attempts == 1) null else Controller("avf-fast") },
+                        onConnected = { recovered.complete(Unit) }, storageIds = listOf(fast.storage.id))
+                    if (!recovered.isCompleted) backoff.awaitRetry()
+                }
+            }
+            withTimeout(2_000) { recovered.await(); retry.await() }
+            assertEquals(2, attempts)
+            assertFalse(blocked.isCompleted)
+            release.complete(Unit); blocked.await()
+        } finally { release.complete(Unit); registry.close() }
+    }
+
     @Test fun legacyAvfEnvironmentRecoversAlongsideHealthyOwners() = runBlocking {
         recoverEnvironment("legacy")
     }

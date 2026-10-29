@@ -18,7 +18,7 @@ internal class AvfGuestBoot {
     suspend fun <T : Closeable> awaitSessiond(
         timeoutMillis: Long,
         retryMillis: Long,
-        connect: () -> T,
+        connect: suspend () -> T,
     ): T {
         var lastError: Exception? = null
         try {

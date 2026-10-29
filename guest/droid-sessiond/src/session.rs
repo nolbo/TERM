@@ -39,8 +39,17 @@ pub struct SessionRegistry {
 }
 
 impl SessionRegistry {
-    pub fn create_shell(&mut self, shell: &str, cwd: &str, rows: u16, cols: u16) -> &Session {
-        self.next_id += 1;
+    pub fn create_shell(&mut self, shell: &str, cwd: &str, rows: u16, cols: u16) -> Result<&Session, PtyError> {
+        // Keep every accepted registry serializable and reserve descriptors for
+        // reconnect/control. Retired children still consume a pidfd.
+        let metadata = self.sessions.values().map(|s| 25 + s.id.len() + s.title.len() + s.command.len() + s.cwd.len()).sum::<usize>();
+        let next = self.next_id.checked_add(1).ok_or(PtyError::Capacity)?;
+        let added = 25 + format!("session-{next}").len() + 5 + shell.len() + cwd.len();
+        if shell.len() > 4096 || cwd.len() > 4096 { return Err(PtyError::InvalidCommand); }
+        if self.sessions.len() >= crate::session_response::MAX_SESSIONS ||
+            metadata + added + 3 > crate::protocol::MAX_PAYLOAD_BYTES ||
+            self.running.len() + self.retired.len() >= 128 { return Err(PtyError::Capacity); }
+        self.next_id = next;
         let id = format!("session-{}", self.next_id);
         let session = Session {
             id: id.clone(),
@@ -55,7 +64,7 @@ impl SessionRegistry {
             attached_clients: 0,
         };
         self.sessions.insert(id.clone(), session);
-        self.sessions.get(&id).expect("new session must exist")
+        Ok(self.sessions.get(&id).expect("new session must exist"))
     }
 
     pub fn get(&self, id: &str) -> Option<&Session> {
@@ -199,7 +208,7 @@ mod tests {
     #[test]
     fn failed_launch_leaves_no_created_session() {
         let mut registry = SessionRegistry::default();
-        let id = registry.create_shell("/bin/sh", "/", 24, 80).id.clone();
+        let id = registry.create_shell("/bin/sh", "/", 24, 80).unwrap().id.clone();
         assert!(registry.start_shell(&id, &[("DROID_SESSION_ARGV".into(), "invalid".into())]).is_err());
         assert_eq!(0, registry.list().count());
         assert_eq!(0, registry.running().count());
@@ -209,7 +218,7 @@ mod tests {
     #[test]
     fn natural_exit_releases_pty_after_tail_output_and_preserves_exit_history() {
         let mut registry = SessionRegistry::default();
-        let id = registry.create_shell("/bin/sh", "/", 24, 80).id.clone();
+        let id = registry.create_shell("/bin/sh", "/", 24, 80).unwrap().id.clone();
         let args = ["/bin/sh", "-c", "printf tail-output; exit 7"];
         let encoded = format!("3:{}", args.iter().map(|arg| format!("{}:{}", arg.len(), arg)).collect::<String>());
         registry.start_shell(&id, &[("DROID_SESSION_ARGV".into(), encoded)]).unwrap();
@@ -244,10 +253,10 @@ mod tests {
     #[test]
     fn exited_history_never_retains_ptys_or_enters_the_running_poll_set() {
         let mut registry = SessionRegistry::default();
-        let active = registry.create_shell("/bin/sh", "/", 24, 80).id.clone();
+        let active = registry.create_shell("/bin/sh", "/", 24, 80).unwrap().id.clone();
         registry.start_shell(&active, &[]).unwrap();
         for _ in 0..64 {
-            let id = registry.create_shell("/bin/true", "/", 24, 80).id.clone();
+            let id = registry.create_shell("/bin/true", "/", 24, 80).unwrap().id.clone();
             registry.start_shell(&id, &[]).unwrap();
             assert_eq!(0, await_exit(&mut registry, &id));
             assert!(registry.get(&id).unwrap().pty.is_none());
@@ -261,7 +270,7 @@ mod tests {
     #[test]
     fn creating_session_metadata_does_not_require_a_ui_client() {
         let mut sessions = SessionRegistry::default();
-        let id = sessions.create_shell("/bin/bash", "/home/user", 24, 80).id.clone();
+        let id = sessions.create_shell("/bin/bash", "/home/user", 24, 80).unwrap().id.clone();
         assert_eq!(sessions.get(&id).unwrap().state, SessionState::Created);
         assert_eq!(sessions.list().count(), 1);
     }
@@ -270,7 +279,7 @@ mod tests {
     fn terminating_middle_session_removes_only_its_entry() {
         let mut sessions = SessionRegistry::default();
         let ids = (0..3).map(|_| {
-            let id = sessions.create_shell("/bin/sh", "/", 24, 80).id.clone();
+            let id = sessions.create_shell("/bin/sh", "/", 24, 80).unwrap().id.clone();
             sessions.start_shell(&id, &[]).unwrap();
             id
         }).collect::<Vec<_>>();
@@ -286,7 +295,7 @@ mod tests {
     #[test]
     fn terminating_an_already_exited_session_removes_its_entry() {
         let mut sessions = SessionRegistry::default();
-        let id = sessions.create_shell("/bin/true", "/", 24, 80).id.clone();
+        let id = sessions.create_shell("/bin/true", "/", 24, 80).unwrap().id.clone();
         sessions.start_shell(&id, &[]).unwrap();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
         loop {
@@ -299,5 +308,26 @@ mod tests {
 
         assert!(sessions.get(&id).is_none());
         assert_eq!(sessions.list().count(), 0);
+    }
+}
+
+#[cfg(test)] mod admission_tests {
+    use super::*;
+    use crate::session_response::{SessionResponse, SessionDescriptor, MAX_SESSIONS};
+    #[test] fn metadata_capacity_never_makes_list_unencodable_and_termination_frees_capacity() {
+        for (command, cwd) in [("/bin/sh".to_owned(), "/".to_owned()), ("x".repeat(4096), "y".repeat(4096))] {
+            let mut sessions = SessionRegistry::default();
+            let mut count = 0;
+            while sessions.create_shell(&command, &cwd, 24, 80).is_ok() {
+                count += 1;
+                let payload = SessionResponse::Listed(sessions.list().map(SessionDescriptor::from).collect()).encode().unwrap();
+                assert!(payload.len() <= crate::protocol::MAX_PAYLOAD_BYTES);
+                assert!(count <= MAX_SESSIONS);
+            }
+            assert!(count > 0);
+            let first = sessions.list().next().unwrap().id.clone();
+            sessions.terminate(&first, Signal::SIGKILL).unwrap();
+            sessions.create_shell(&command, &cwd, 24, 80).unwrap();
+        }
     }
 }

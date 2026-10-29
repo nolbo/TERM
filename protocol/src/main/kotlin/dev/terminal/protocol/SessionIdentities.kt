@@ -27,15 +27,39 @@ internal class SessionIdentities(private val namespace: String) {
         else -> value
     }
 
-    fun response(value: SessionResponse): SessionResponse = when (value) {
-        is SessionResponse.Created -> value.copy(session = descriptor(value.session))
-        is SessionResponse.Listed -> value.copy(sessions = value.sessions.map(::descriptor))
-        is SessionResponse.Attached -> value.copy(session = descriptor(value.session))
-        is SessionResponse.Resized -> value.copy(session = descriptor(value.session))
-        is SessionResponse.Detached -> value.copy(sessionId = host(value.sessionId))
-        is SessionResponse.Written -> value.copy(sessionId = host(value.sessionId))
-        is SessionResponse.Terminating -> value.copy(sessionId = host(value.sessionId))
-        is SessionResponse.Resources -> value
+    fun response(value: SessionResponse, request: SessionRequest? = null, wire: SessionRequest? = null): SessionResponse {
+        // In-flight acknowledgements retain their request identity even after a
+        // later TERMINATE/LIST retires the routing maps. No tombstone history.
+        fun replyId(id: String): String = if (wire?.sessionId() == id) requireNotNull(request?.sessionId()) else host(id)
+        return when (value) {
+            is SessionResponse.Created -> value.copy(session = descriptor(value.session))
+            is SessionResponse.Listed -> {
+                val present = value.sessions.mapTo(HashSet()) { it.id }
+                toHost.keys.filter { it !in present }.forEach(::retire)
+                val iterator = early.iterator()
+                while (iterator.hasNext()) {
+                    val event = iterator.next()
+                    if (id(event) !in present) { earlyBytes -= size(event); iterator.remove() }
+                }
+                value.copy(sessions = value.sessions.map(::descriptor))
+            }
+            is SessionResponse.Attached -> value.copy(session = value.session.copy(id = replyId(value.session.id)))
+            is SessionResponse.Resized -> value.copy(session = value.session.copy(id = replyId(value.session.id)))
+            is SessionResponse.Detached -> value.copy(sessionId = replyId(value.sessionId))
+            is SessionResponse.Written -> value.copy(sessionId = replyId(value.sessionId))
+            is SessionResponse.Terminating -> value.copy(sessionId = replyId(value.sessionId)).also { retire(value.sessionId) }
+            is SessionResponse.Resources -> value
+        }
+    }
+
+    private fun retire(id: String) { toHost.remove(id)?.let(toGuest::remove) }
+    private fun SessionRequest.sessionId(): String? = when (this) {
+        is SessionRequest.Attach -> sessionId
+        is SessionRequest.Detach -> sessionId
+        is SessionRequest.Resize -> sessionId
+        is SessionRequest.Write -> sessionId
+        is SessionRequest.Terminate -> sessionId
+        else -> null
     }
 
     private fun id(event: SessionEvent): String = when (event) {

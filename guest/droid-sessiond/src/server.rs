@@ -20,14 +20,16 @@ pub struct SessionServer {
     pending: HashMap<String, VecDeque<PendingInput>>,
     pending_bytes: usize,
     staged_output: HashMap<String, Vec<u8>>,
+    accept_after: Option<std::time::Instant>,
 }
 
 impl Default for SessionServer {
-    fn default() -> Self { Self { client: None, output: Default::default(), output_cursor: String::new(), poll: PollState::default(), sessions: SessionRegistry::default(), graphics: HashMap::new(), pending: HashMap::new(), pending_bytes: 0, staged_output: HashMap::new() } }
+    fn default() -> Self { Self { client: None, output: Default::default(), output_cursor: String::new(), poll: PollState::default(), sessions: SessionRegistry::default(), graphics: HashMap::new(), pending: HashMap::new(), pending_bytes: 0, staged_output: HashMap::new(), accept_after: None } }
 }
 
 impl SessionServer {
     pub fn serve_forever(&mut self, listener: VsockListener) -> Result<(), VsockError> {
+        listener.enable_nonblocking()?;
         loop { self.turn(Some(&listener), -1)?; }
     }
 
@@ -57,7 +59,9 @@ impl SessionServer {
             }
             poll.ids.truncate(count);
             poll.fds.clear();
-            poll.push(listener.map_or(-1, VsockListener::raw_fd), nix::libc::POLLIN);
+            let accept_wait = self.accept_after.map(|until| until.saturating_duration_since(std::time::Instant::now()));
+            let accept_ready = accept_wait.map_or(true, |wait| wait.is_zero());
+            poll.push(if accept_ready { listener.map_or(-1, VsockListener::raw_fd) } else { -1 }, nix::libc::POLLIN);
             let client = self.client.as_ref();
             let capacity = client.is_some_and(|c| c.connection.has_capacity());
             poll.push(client.map_or(-1, |c| c.connection.raw_fd()),
@@ -79,15 +83,28 @@ impl SessionServer {
             for fd in self.sessions.retired_fds() { poll.push(fd, nix::libc::POLLIN); }
             let immediate = buffered_output || client.is_some_and(|c|
                 c.connection.has_pty_capacity() && self.output.tails.iter().any(|(id, tail)| tail.has_pending() && c.known.contains(id)));
+            let timeout = accept_wait.filter(|wait| !wait.is_zero()).map_or(timeout, |wait| {
+                let retry = (wait.as_millis() + 1).min(i32::MAX as u128) as i32;
+                if timeout < 0 { retry } else { timeout.min(retry) }
+            });
             poll.wait(if immediate || (listener.is_none() && client.is_none() && timeout < 0) { 0 } else { timeout })?;
             if poll.readable(1) { self.service_client(); }
             if poll.readable(0) {
-                match listener.unwrap().accept() {
-                    Ok(connection) if self.client.is_none() => self.client = Some(Client::new(connection)?),
-                    Ok(_) | Err(VsockError::UntrustedPeer) | Err(VsockError::Socket(nix::errno::Errno::EINTR)) => (),
-                    Err(error) => return Err(error),
+                let accepted = listener.unwrap().accept().and_then(Client::new);
+                match accepted {
+                    Ok(client) if self.client.is_none() => { self.client = Some(client); self.accept_after = None; }
+                    Ok(_) | Err(VsockError::UntrustedPeer) |
+                        Err(VsockError::Socket(nix::errno::Errno::EINTR | nix::errno::Errno::EAGAIN)) => (),
+                    Err(error @ VsockError::Socket(nix::errno::Errno::EBADF | nix::errno::Errno::EINVAL | nix::errno::Errno::ENOTSOCK)) => return Err(error),
+                    Err(error) => {
+                        // FD/memory pressure and aborted peers must not kill PTYs
+                        // or spin on a still-readable listener. Reuse poll's timeout.
+                        eprintln!("droid-sessiond: accept deferred: {error:?}");
+                        self.accept_after = Some(std::time::Instant::now() + std::time::Duration::from_millis(100));
+                    }
                 }
             }
+
             for (index, id) in poll.ids.iter().enumerate() {
                 let pty_index = 2 + index * 2;
                 // POLLIN was omitted only when parser work was already queued.
@@ -289,7 +306,7 @@ impl SessionServer {
                 .map_err(|_| DispatchError { code: ErrorCode::GuestError, message: "guest metrics unavailable" }),
             SessionRequest::Create { shell, cwd, env, rows, cols } => {
                 let environment: Vec<_> = env.into_iter().collect();
-                let id = self.sessions.create_shell(&shell, &cwd, rows, cols).id.clone();
+                let id = self.sessions.create_shell(&shell, &cwd, rows, cols).map_err(DispatchError::from_pty)?.id.clone();
                 self.sessions.start_shell(&id, &environment).map_err(DispatchError::from_pty)?;
                 self.graphics.insert(id.clone(), GraphicsTransport::default());
                 Ok(SessionResponse::Created(self.descriptor(&id)?))
@@ -505,6 +522,7 @@ impl DispatchError {
             PtyError::SessionNotStarted => Self { code: ErrorCode::GuestError, message: "session is not running" },
             PtyError::InvalidCommand => Self::invalid("invalid shell command or working directory"),
             PtyError::InvalidEnvironment => Self::invalid("invalid PTY configuration"),
+            PtyError::Capacity => Self { code: ErrorCode::GuestError, message: "session capacity reached; close unused sessions" },
             PtyError::Nix(_) => Self { code: ErrorCode::GuestError, message: "guest PTY operation failed" },
         }
     }
@@ -900,7 +918,7 @@ mod multiplex_tests {
     }
 
     fn script(server: &mut SessionServer, value: &str) -> String {
-        let id = server.sessions.create_shell("/bin/sh", "/", 24, 80).id.clone();
+        let id = server.sessions.create_shell("/bin/sh", "/", 24, 80).unwrap().id.clone();
         let args = ["/bin/sh", "-c", value];
         let encoded = format!("3:{}", args.iter().map(|arg| format!("{}:{}", arg.len(), arg)).collect::<String>());
         server.sessions.start_shell(&id, &[("DROID_SESSION_ARGV".into(), encoded)]).unwrap();
@@ -993,4 +1011,47 @@ mod multiplex_tests {
         drop(host); worker.join().unwrap();
     }
 
+}
+
+#[cfg(test)] mod listener_tests {
+    use super::*;
+    #[test] fn fd_pressure_defers_accept_without_stopping_or_spinning_the_owner() {
+        const CHILD: &str = "TERM_ACCEPT_PRESSURE_TEST";
+        if std::env::var_os(CHILD).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "server::listener_tests::fd_pressure_defers_accept_without_stopping_or_spinning_the_owner", "--nocapture"])
+                .env(CHILD, "1").status().unwrap();
+            assert!(status.success());
+            return;
+        }
+        // Resource limits apply only to this isolated test process.
+        let path = std::env::temp_dir().join(format!("term-accept-test-{}", std::process::id()));
+        let socket = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let listener = VsockListener::test_listener(std::os::fd::OwnedFd::from(socket));
+        listener.enable_nonblocking().unwrap();
+        assert!(matches!(listener.accept(), Err(VsockError::Socket(nix::errno::Errno::EAGAIN))));
+        let _peer = std::os::unix::net::UnixStream::connect(&path).unwrap();
+        let mut server = SessionServer::default();
+        let session = server.sessions.create_shell("/bin/sh", "/", 24, 80).unwrap().id.clone();
+        let mut limit = std::mem::MaybeUninit::<nix::libc::rlimit>::uninit();
+        assert_eq!(unsafe { nix::libc::getrlimit(nix::libc::RLIMIT_NOFILE, limit.as_mut_ptr()) }, 0);
+        let original = unsafe { limit.assume_init() };
+        let low = nix::libc::rlimit { rlim_cur: 128.min(original.rlim_cur), rlim_max: original.rlim_max };
+        assert_eq!(unsafe { nix::libc::setrlimit(nix::libc::RLIMIT_NOFILE, &low) }, 0);
+        let mut files = Vec::new();
+        while let Ok(file) = std::fs::File::open("/dev/null") { files.push(file); }
+        let result = server.turn(Some(&listener), 0);
+        unsafe { nix::libc::setrlimit(nix::libc::RLIMIT_NOFILE, &original) };
+        drop(files);
+        result.unwrap();
+        assert!(server.sessions.get(&session).is_some());
+        assert!(server.accept_after.is_some());
+        let start = std::time::Instant::now();
+        server.turn(Some(&listener), 30).unwrap();
+        assert!(start.elapsed() >= std::time::Duration::from_millis(20));
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        server.turn(Some(&listener), 0).unwrap(); // rejects the Unix peer but keeps serving
+        assert!(server.sessions.get(&session).is_some());
+        std::fs::remove_file(path).unwrap();
+    }
 }

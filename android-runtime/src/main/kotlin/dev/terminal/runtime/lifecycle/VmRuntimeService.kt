@@ -118,9 +118,10 @@ class VmRuntimeService : Service() {
             recordAvfSession("session.input.failed", id, error = failure, limited = true)
             notifyOperationError("입력 전송", failure.userMessage())
         })
-    private val guestRetry = ReconnectBackoff()
     private var wakeExpiryJob: Job? = null
-    private var reconnectJob: Job? = null
+    private val reconnectJobs = ConcurrentHashMap<EnvironmentId, Pair<ReconnectBackoff, Job>>()
+    private class AvfStopCheck(val environment: Environment)
+    private val pendingAvfStopChecks = ConcurrentHashMap<EnvironmentId, AvfStopCheck>()
     private lateinit var wakeController: RuntimeWakeController
     private lateinit var wakePolicies: WakePolicyStore
     private lateinit var capabilityGrants: SharedPreferencesCapabilityGrantStore
@@ -1772,6 +1773,8 @@ class VmRuntimeService : Service() {
                     }
                     environmentBackends.remove(id)
                     avfOwnerObservers.remove(id)?.second?.cancel()
+                    pendingAvfStopChecks.remove(id)
+                    reconnectJobs.remove(id)?.second?.cancel()
                     avfConnectionIssues.remove(id)
                 }
             }
@@ -1863,6 +1866,7 @@ class VmRuntimeService : Service() {
             return true
         }
         val key = executionEnvironment.id
+        val previousStopCheck = pendingAvfStopChecks[key]
         val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
         val owner = environmentBackends.getOrPut(key) {
             when (spec.runtime) {
@@ -1937,6 +1941,7 @@ class VmRuntimeService : Service() {
             else -> owner.connectSessionClient(spec.storageId, avfSessionNamespaces.get(key)).getOrThrow()
         }
         registry.register(executionEnvironment, controller)
+        previousStopCheck?.let { pendingAvfStopChecks.remove(key, it) }
         observeAvfPorts(executionEnvironment, owner)
         return true
     }
@@ -1945,7 +1950,7 @@ class VmRuntimeService : Service() {
         hostBackgroundOperationCount.get(), guestWorkEnvironments.isNotEmpty(), explicitlyStartedEnvironments.size)
 
     private fun resetReconnectBackoff() {
-        guestRetry.reset()
+        reconnectJobs.values.forEach { it.first.reset() }
         bridgeObservers.values.forEach { it.resetBackoff() }
         updateReconnectWork()
     }
@@ -1957,46 +1962,65 @@ class VmRuntimeService : Service() {
     @Synchronized private fun updateReconnectWork() {
         portObservers.values.forEach { it.second.reconcile() }
         bridgeObservers.values.forEach { it.reconcile() }
-        if (!hasReconnectWork()) {
-            reconnectJob?.cancel()
-            return
+        reconnectJobs.forEach { (id, work) ->
+            if (!hasEnvironmentDemand(id) && !pendingAvfStopChecks.containsKey(id)) work.second.cancel()
         }
         scheduleGuestReconnect()
     }
 
     @Synchronized private fun scheduleGuestReconnect() {
-        if (reconnectJob?.isActive == true || !hasReconnectWork()) return
-        // Input resets retry backoff, but healthy owners need neither another
-        // worker nor LIST RPCs for every key. This also keeps temporary-workspace
-        // collection out of the normal input/echo path.
-        val current = sessionClient as? UnifiedSessionRegistry ?: return
-        if (current.disconnectedStorages(SessionRuntime.AVF).none {
-                hasEnvironmentDemand(environmentForStorage(SessionRuntime.AVF, it).id) }) return
-        reconnectJob = scope.launch {
-            recordRuntime("session.reconnect.start")
-            while (!destroying && hasReconnectWork()) {
-                val registry = ensureSessionRegistry() ?: return@launch
-                reconnectAvfSessions(registry,
-                    environmentForStorage = { environmentForStorage(SessionRuntime.AVF, it) },
-                    connect = { environment -> environmentBackends[environment.id]
-                        ?.connectSessionClient(environment.storage.id, avfSessionNamespaces.get(environment.id))?.getOrNull() },
-                    onConnected = { environment ->
-                        guestRetry.reset()
-                        if (avfConnectionIssues[environment.id]?.requiresNewBoot == false) avfConnectionIssues.remove(environment.id)
-                    },
-                    canReconnect = { hasEnvironmentDemand(it.id) },
-                    withEnvironmentLease = { environment, work ->
-                        preparationLocks.withStorage(environment.sessionRuntime, environment.storage.id) { work() }
-                    })
-                if (registry.disconnectedStorages(SessionRuntime.AVF).none {
-                        hasEnvironmentDemand(environmentForStorage(SessionRuntime.AVF, it).id) }) {
-                    guestRetry.reset()
-                    refreshSessions(registry)
-                    return@launch
+        if (destroying) return
+        val registry = sessionClient as? UnifiedSessionRegistry ?: return
+        val environments = (registry.disconnectedStorages(SessionRuntime.AVF).map {
+            environmentForStorage(SessionRuntime.AVF, it)
+        } + pendingAvfStopChecks.values.map { it.environment }).distinctBy { it.id }
+        for (environment in environments) {
+            val id = environment.id
+            if (reconnectJobs[id]?.second?.isActive == true ||
+                (!hasEnvironmentDemand(id) && !pendingAvfStopChecks.containsKey(id))) continue
+            val retry = ReconnectBackoff()
+            val job = scope.launch(start = CoroutineStart.LAZY) {
+                while (!destroying) {
+                    val owner = environmentBackends[id] as? AvfBackend ?: break
+                    val stopCheck = pendingAvfStopChecks[id]
+                    if (stopCheck != null) {
+                        try {
+                            reconcileStoppedAvfOwner(environment, owner)
+                            pendingAvfStopChecks.remove(id, stopCheck)
+                        } catch (cancelled: CancellationException) { throw cancelled }
+                        catch (error: Exception) {
+                            ConnectionDiagnostics.record("vm.owner.reconcile.failed", id.value, error = error)
+                            reportAvfIssue(environment, "${environment.name}: AVF 상태를 확인하지 못했습니다. 기존 세션과 데이터는 보존됩니다.", false)
+                        }
+                    }
+                    if (hasEnvironmentDemand(id) && environment.storage.id in registry.disconnectedStorages(SessionRuntime.AVF)) {
+                        reconnectAvfSessions(registry,
+                            environmentForStorage = { environment },
+                            connect = { owner.connectSessionClient(environment.storage.id, avfSessionNamespaces.get(id)).getOrNull() },
+                            onConnected = {
+                                // Successful LIST/ATTACH proves this owner is alive again.
+                                if (stopCheck != null) pendingAvfStopChecks.remove(id, stopCheck)
+                                if (avfConnectionIssues[id]?.requiresNewBoot == false) avfConnectionIssues.remove(id)
+                            },
+                            canReconnect = { hasEnvironmentDemand(id) },
+                            withEnvironmentLease = { _, work ->
+                                preparationLocks.withStorage(environment.sessionRuntime, environment.storage.id) { work() }
+                            }, storageIds = listOf(environment.storage.id))
+                    }
+                    if (!pendingAvfStopChecks.containsKey(id) && (!hasEnvironmentDemand(id) ||
+                            environment.storage.id !in registry.disconnectedStorages(SessionRuntime.AVF))) break
+                    retry.awaitRetry { delay -> recordRuntime("session.reconnect.wait", details =
+                        mapOf("environment" to id.value, "delay_ms" to delay.toString())) }
                 }
-                guestRetry.awaitRetry { delay -> recordRuntime("session.reconnect.wait",
-                    details = mapOf("delay_ms" to delay.toString())) }
+                // Publish the already reconciled projection without querying other owners.
+                sessionSnapshots.mutateAndRefresh(registry) { Result.success(Unit) }
             }
+            val entry = retry to job
+            reconnectJobs[id] = entry
+            job.invokeOnCompletion {
+                if (reconnectJobs.remove(id, entry)) scheduleGuestReconnect()
+            }
+            job.start()
         }
     }
 
@@ -2009,7 +2033,11 @@ class VmRuntimeService : Service() {
                     when (event) {
                         is AvfPlatformEvent.SharingUnavailable -> reportAvfIssue(environment,
                             "${environment.name}: 공유 디렉토리 연결을 복구하지 못했습니다. 세션과 VM은 유지됩니다. 공유를 다시 사용하려면 작업을 저장하고 환경을 중지한 뒤 시작하세요.", true)
-                        AvfPlatformEvent.Stopped, is AvfPlatformEvent.Failed -> reconcileStoppedAvfOwner(environment, owner)
+                        AvfPlatformEvent.Stopped, is AvfPlatformEvent.Failed -> {
+                            pendingAvfStopChecks[environment.id] = AvfStopCheck(environment)
+                            reconnectJobs[environment.id]?.first?.reset()
+                            scheduleGuestReconnect()
+                        }
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
                 catch (error: Exception) {
@@ -2238,8 +2266,9 @@ class VmRuntimeService : Service() {
         kittyIdentities.clear()
         kittyTitles.clear()
         focusedSession = null
-        reconnectJob?.cancel()
-        reconnectJob = null
+        reconnectJobs.values.forEach { it.second.cancel() }
+        reconnectJobs.clear()
+        pendingAvfStopChecks.clear()
         bridgeObservers.values.forEach { it.close() }
         bridgeObservers.clear()
         closePortObservers()

@@ -18,9 +18,11 @@ internal suspend fun reconnectAvfSessions(
     onConnected: (Environment) -> Unit,
     canReconnect: (Environment) -> Boolean = { true },
     withEnvironmentLease: suspend (Environment, suspend () -> Unit) -> Unit = { _, action -> action() },
+    storageIds: List<String> = registry.disconnectedStorages(SessionRuntime.AVF),
 ) = coroutineScope {
-    registry.disconnectedStorages(SessionRuntime.AVF).map { id -> async {
+    storageIds.map { id -> async {
         var replacement: SessionController? = null
+        var committed = false
         try {
             val environment = environmentForStorage(id)
             if (!canReconnect(environment)) return@async
@@ -47,11 +49,13 @@ internal suspend fun reconnectAvfSessions(
                     details = mapOf("storage" to id, "sessions" to sessions.size.toString(),
                         "running" to sessions.count { it.state == SessionStatus.RUNNING }.toString()))
                 onConnected(environment)
+                committed = true
             }
         } catch (cancelled: CancellationException) { throw cancelled }
         catch (error: Exception) {
-            replacement?.let { runCatching { it.close() } }
             ConnectionDiagnostics.record("session.reconnect.failed", id, error = error)
+        } finally {
+            if (!committed) replacement?.let { runCatching { it.close() } }
         }
     } }.awaitAll()
     Unit

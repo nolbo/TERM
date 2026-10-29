@@ -9,6 +9,7 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 import org.junit.Assert.*
+import kotlinx.coroutines.launch
 import org.junit.Test
 
 class GuestConnectionOpenerTest {
@@ -16,6 +17,23 @@ class GuestConnectionOpenerTest {
         val closes = AtomicInteger()
         val closed = CountDownLatch(1)
         override fun close() { closes.incrementAndGet(); closed.countDown() }
+    }
+
+    @Test fun suspendConnectReleasesCallerAndClosesTheCancelledLateResult() = kotlinx.coroutines.runBlocking {
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val closed = java.util.concurrent.CountDownLatch(1)
+        val connection = AutoCloseable { closed.countDown() }
+        val job = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            GuestConnectionOpener.openSuspending(5_000) { entered.countDown(); release.await(); connection }
+        }
+        try {
+            assertTrue(entered.await(1, java.util.concurrent.TimeUnit.SECONDS))
+            job.cancel(); job.join()
+            assertEquals(1L, closed.count)
+            release.countDown()
+            assertTrue(closed.await(1, java.util.concurrent.TimeUnit.SECONDS))
+        } finally { release.countDown() }
     }
 
     @Test fun lateConnectionIsClosedAfterTheCallerTimesOut() {

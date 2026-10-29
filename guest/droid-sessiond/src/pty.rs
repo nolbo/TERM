@@ -19,6 +19,7 @@ pub enum PtyError {
     SessionNotStarted,
     InvalidCommand,
     InvalidEnvironment,
+    Capacity,
 }
 
 impl From<Errno> for PtyError {
@@ -212,7 +213,41 @@ mod command_tests {
 
 fn child_exec(launch: &PtyLaunch) -> ! {
     unsafe {
+        // Only async-signal-safe libc calls after fork. Rust ignores SIGPIPE;
+        // a shell/CLI must inherit normal Linux signal behavior, not the daemon's.
+        let mut action: nix::libc::sigaction = std::mem::zeroed();
+        action.sa_sigaction = nix::libc::SIG_DFL;
+        nix::libc::sigemptyset(&mut action.sa_mask);
+        for signal in 1..=64 {
+            // SIGKILL/SIGSTOP and libc-reserved signals cannot be changed.
+            nix::libc::sigaction(signal, &action, std::ptr::null_mut());
+        }
+        let mut mask: nix::libc::sigset_t = std::mem::zeroed();
+        nix::libc::sigemptyset(&mut mask);
+        if nix::libc::sigprocmask(nix::libc::SIG_SETMASK, &mask, std::ptr::null_mut()) != 0 {
+            nix::libc::_exit(127);
+        }
         nix::libc::execv(launch.executable.as_ptr(), launch.argv.as_ptr());
         nix::libc::_exit(127)
+    }
+}
+
+#[cfg(test)] mod signal_tests {
+    use super::*;
+    #[test] fn child_restores_sigpipe_default() {
+        let script = "kill -PIPE $$; printf PIPE_IGNORED";
+        let args = ["/bin/sh", "-c", script];
+        let encoded = format!("3:{}", args.iter().map(|a| format!("{}:{}", a.len(), a)).collect::<String>());
+        let mut child = PtyProcess::spawn("/bin/sh", "/", &[("DROID_SESSION_ARGV".into(), encoded)], 24, 80).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let code = loop {
+            if let Some(code) = child.poll_exit().unwrap() { break code; }
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        };
+        let mut output = [0; 128]; let n = child.read_output(&mut output).unwrap_or(0);
+        child.close_output();
+        assert_eq!(code, 128 + nix::libc::SIGPIPE);
+        assert!(!output[..n].ends_with(b"PIPE_IGNORED"));
     }
 }
