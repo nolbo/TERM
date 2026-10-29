@@ -10,6 +10,7 @@ import java.io.DataInputStream
 import java.io.EOFException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
@@ -48,7 +49,9 @@ class ParcelFileDescriptorFrameTransport(
         } catch (error: EOFException) {
             // A normal VM stop or guest daemon restart closes the vsock stream.
         }
-    }.flowOn(Dispatchers.IO)
+    // Event delivery has its own byte budget. Keep only a small read-ahead batch
+    // here instead of the coroutine default of 64 protocol-sized payloads.
+    }.buffer(8).flowOn(Dispatchers.IO)
 
     override fun close() {
         stream.close()

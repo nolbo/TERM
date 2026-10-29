@@ -360,3 +360,10 @@ EXITED behavior. Explicit Environment Stop still requires an idle owner.
 Transport disconnection alone preserves sessions for recovery; an unknown owner
 is never treated as stopped. Healthy sibling owners continue independently.
 These lifecycle changes are host-only and need no guest image update.
+
+The 2026-10-29 follow-up keeps the single-CPU default pending matched-device
+measurements, removes repeated global queue scans between buffered media slices,
+and limits the direct frame flow to eight prefetched frames. Media short reads
+yield after one read call with at most two carried raw bytes. A slow filesystem
+syscall can still delay the guest loop; this does not promise a wall-clock I/O
+deadline. See the measured decisions in [AVF_NOTES.md](AVF_NOTES.md#measured-simplification-candidates-2026-10-29).

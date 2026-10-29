@@ -396,6 +396,11 @@ A session request deadline covers both sending and response waiting, using 10 se
 
 Platform connection attempts are separately bounded to 10 seconds with eight workers and no queued opens. A platform call returning after timeout/cancellation loses ownership and its descriptor is closed. Resumable attachment/retry sleeps share its 60-second recovery deadline. No protocol version or guest capability changes are required by these host changes.
 
+The direct native-frame flow prefetches eight frames, reduced from the coroutine
+default of 64. Queued payload is therefore at most 8 MiB (64 KiB for 8 KiB frames),
+plus producer/consumer in-flight frames and stream buffers. This is a queue bound,
+not a measurement of total app RSS. Socket shutdown still unblocks both directions.
+
 Host event delivery is decoupled from frame reception. A lazy 9 MiB / 512-event
 queue replaces the 64-event SharedFlow buffer; an unbuffered emitter may hold one
 additional protocol-sized event. Slow output consumers do not delay LIST, WRITE,

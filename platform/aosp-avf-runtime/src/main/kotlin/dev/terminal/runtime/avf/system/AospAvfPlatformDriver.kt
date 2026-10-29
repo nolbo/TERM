@@ -237,13 +237,17 @@ class AospAvfPlatformDriver(
     }
 
     private suspend fun sessionConnection(vm: VirtualMachine): GuestConnection = if (sessionResumeVersion == 1) {
-        // Installed relay images retain their bounded compatibility handshake.
-        kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
-            dev.terminal.runtime.vsock.ResumableGuestConnection(GUEST_CID_UNAVAILABLE,
-                connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
-                report = { event, code, error, details -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
-                    event, prepared?.instanceId, code = code, error = error, details = details) })
-        }
+        // Keep legacy handshakes on IO; prompt coroutine cancellation must also
+        // close a connection returned just before dispatching back to the caller.
+        val opened = AtomicReference<GuestConnection?>()
+        try {
+            kotlinx.coroutines.runInterruptible(kotlinx.coroutines.Dispatchers.IO) {
+                dev.terminal.runtime.vsock.ResumableGuestConnection(GUEST_CID_UNAVAILABLE,
+                    connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
+                    report = { event, code, error, details -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
+                        event, prepared?.instanceId, code = code, error = error, details = details) }).also { opened.set(it) }
+            }.also { opened.set(null) }
+        } finally { opened.getAndSet(null)?.let { runCatching { it.close() } } }
     } else ParcelFileDescriptorFrameTransport(connectVsock(vm, DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)

@@ -1,4 +1,4 @@
-package dev.terminal.app
+package dev.terminal.runtime.vsock
 
 import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -13,7 +13,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class AvfTransportCancellationTest {
+class FrameTransportDeviceTest {
     @Test fun deadlineInterruptsANativeSocketWriteWithNoPeerConsumption() = runBlocking {
         val sockets = ParcelFileDescriptor.createSocketPair()
         val raw = ParcelFileDescriptorFrameTransport(sockets[0], 0)

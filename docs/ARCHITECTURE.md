@@ -165,7 +165,7 @@ The [independent Userspace engine design](USERSPACE_ENGINE_DESIGN.md) defines th
 2026-10-28 replacement direction: a separately implemented, ptrace-free engine
 within Userspace Linux, with explicit compatibility, performance and Android
 policy gates. It is neither a PRoot modification nor a revival of Direct Linux.
-Initial independent entry probes are implemented; their actual coverage and
+Initial independent syscall-entry and ELF-loader probes are implemented; their actual coverage and
 remaining gates are recorded in [implementation status](USERSPACE_ENGINE_IMPLEMENTATION.md).
 The current PRoot backend, session ownership and installed Environment storage
 remain authoritative until those gates pass.
@@ -849,13 +849,17 @@ unknown when gaps merge. RPC responses complete independently, while ordered res
 still waits for its queued marker to reach the terminal before exposing the new
 geometry. Control-only overflow disconnects that connection for reconciliation
 rather than silently losing a barrier or growing without bound. Close clears the
-queue and cancels delivery. These host rules also apply to legacy guest transports;
+queue and cancels delivery. The direct native-frame flow separately prefetches
+at most eight frames, with one producer and one consumer frame additionally in flight;
+its payload budget is distinct from the event-delivery queue. These host rules also apply to legacy guest transports;
 wire replay does not promise lossless terminal delivery under host overload.
 
 Local media conversion is incremental inside the existing graphics parser: at
 most seven 3 KiB source blocks (21 KiB) form one <32 KiB output frame per session
-turn. A single read fills that 21 KiB quantum before encoding its seven ordinary
-3 KiB Kitty chunks. Control requests run between pending parser slices. Following raw output
+turn. One read call attempts at most that 21 KiB quantum; short/interrupted reads
+yield instead of looping in read_exact. At most two raw bytes carry across turns
+to keep base64 padding confined to the final chunk. Control requests run between
+pending parser slices, without rescanning every input/output queue for each slice. Following raw output
 waits in the existing staged buffer, preserving per-session ordering. Each parser
 holds only its current reader/keys, never a complete encoded image; the existing
 9/16 MiB output bounds also cover interleaved image chunks from multiple sessions.

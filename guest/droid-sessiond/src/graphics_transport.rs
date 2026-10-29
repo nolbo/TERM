@@ -197,7 +197,7 @@ impl GraphicsTransport {
         };
         keys.insert('t', "d".into()); keys.remove(&'S'); keys.remove(&'O'); keys.remove(&'m');
         // Consume only the command here; encoding resumes in later loop turns.
-        self.media = Some(MediaTransfer { media: data, keys, first: true });
+        self.media = Some(MediaTransfer::new(data, keys));
     }
 }
 
@@ -285,35 +285,54 @@ fn encode_base64_into(bytes: &[u8], out: &mut Vec<u8>) {
 
 // One in-progress reader per parser; encoded chunks go through the existing
 // bounded output tails. No complete-image staging queue or worker is needed.
-struct MediaTransfer { media: Media, keys: BTreeMap<char, String>, first: bool }
+struct MediaTransfer {
+    media: Media, keys: BTreeMap<char, String>, first: bool,
+    carry: [u8; 2], held: usize,
+}
 impl MediaTransfer {
+    fn new(media: Media, keys: BTreeMap<char, String>) -> Self {
+        Self { media, keys, first: true, carry: [0; 2], held: 0 }
+    }
     fn step(&mut self) -> Result<(bool, Vec<u8>), &'static str> {
+        let mut buffer = [0u8; MEDIA_TURN_BYTES];
+        buffer[..self.held].copy_from_slice(&self.carry[..self.held]);
+        let wanted = self.media.length.min(MEDIA_TURN_BYTES - self.held);
+        let read = if wanted == 0 { 0 } else {
+            // One syscall per turn, including short/interrupted reads. read_exact
+            // could loop over a slow mount indefinitely before serving control.
+            match self.media.reader.read(&mut buffer[self.held..self.held + wanted]) {
+                Ok(0) => return Err("EIO: media read"),
+                Ok(count) => count,
+                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => return Ok((false, Vec::new())),
+                Err(_) => return Err("EIO: media read"),
+            }
+        };
+        self.media.length -= read;
+        let available = self.held + read;
+        let raw = if self.media.length == 0 { available } else { available / 3 * 3 };
+        self.held = available - raw;
+        self.carry[..self.held].copy_from_slice(&buffer[raw..available]);
+        if raw == 0 && self.media.length != 0 { return Ok((false, Vec::new())); }
+        // Only the final APC may contain base64 padding. At most two raw bytes
+        // survive a short read; no extra image buffer or I/O worker is introduced.
         let header = if self.first {
             self.keys.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")
         } else { String::new() };
         let frame = self.keys.get(&'a').is_some_and(|action| action == "f");
-        let raw = self.media.length.min(MEDIA_TURN_BYTES);
         let mut output = Vec::with_capacity((raw + 2) / 3 * 4 + header.len() + MEDIA_BLOCKS_PER_TURN * 13);
-        let mut buffer = [0u8; MEDIA_TURN_BYTES];
-        self.media.reader.read_exact(&mut buffer[..raw]).map_err(|_| "EIO: media read")?;
-        // One bounded read, with unchanged Kitty chunk sizes and turn budget.
-        // An empty image still needs one terminating APC.
+        if self.media.length == 0 { self.media.finish()?; }
         for offset in (0..raw.max(1)).step_by(MEDIA_BLOCK_BYTES) {
             let chunk = &buffer[offset..raw.min(offset + MEDIA_BLOCK_BYTES)];
-            self.media.length -= chunk.len();
-            // The terminating m=0 chunk commits the image at the receiver. Never
-            // publish it until all reads and optional source cleanup succeeded.
-            if self.media.length == 0 { self.media.finish()?; }
+            let more = self.media.length > 0 || offset + chunk.len() < raw;
             let metadata = if self.first { header.as_str() } else if frame { "a=f" } else { "" };
             output.extend_from_slice(b"\x1b_G");
             if !metadata.is_empty() { output.extend_from_slice(metadata.as_bytes()); output.push(b','); }
-            output.extend_from_slice(if self.media.length > 0 { b"m=1;" } else { b"m=0;" });
+            output.extend_from_slice(if more { b"m=1;" } else { b"m=0;" });
             encode_base64_into(chunk, &mut output);
             output.extend_from_slice(b"\x1b\\");
             self.first = false;
-            if self.media.length == 0 { return Ok((true, output)); }
         }
-        Ok((false, output))
+        Ok((self.media.length == 0, output))
     }
 }
 
@@ -424,14 +443,14 @@ mod tests {
         let keys = header.split(',').map(|item| {
             let (key, value) = item.split_once('=').unwrap(); (key.chars().next().unwrap(), value.to_owned())
         }).collect();
-        let mut transfer = MediaTransfer { media, keys, first: true };
+        let mut transfer = MediaTransfer::new(media, keys);
         let mut bytes = Vec::new();
         loop {
             let (done, batch) = transfer.step()?;
             // Split complete APCs so the existing per-chunk assertions still
             // verify the 4096-byte payload and continuation metadata boundaries.
             let mut start = 0;
-            for index in 0..batch.len() - 1 {
+            for index in 0..batch.len().saturating_sub(1) {
                 if &batch[index..index+2] == b"\x1b\\" { bytes.push(batch[start..index+2].to_vec()); start = index+2; }
             }
             if done { return Ok(bytes); }
@@ -443,6 +462,43 @@ mod tests {
     fn fixture() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("tty-graphics-protocol-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir(&p).unwrap(); p
+    }
+
+    #[test]
+    fn short_and_interrupted_reads_yield_without_padding_or_losing_bytes() {
+        use std::sync::Arc;
+        struct Short { bytes: std::io::Cursor<Vec<u8>>, width: usize, calls: Arc<AtomicUsize> }
+        impl Read for Short {
+            fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+                let count = self.calls.fetch_add(1, Ordering::Relaxed);
+                if count % 4 == 0 { return Err(std::io::ErrorKind::Interrupted.into()); }
+                let length = buffer.len().min(self.width);
+                self.bytes.read(&mut buffer[..length])
+            }
+        }
+        for width in [1, 2, 3, 7, 4095] {
+            let bytes: Vec<_> = (0..8201).map(|n| (n % 251) as u8).collect();
+            let calls = Arc::new(AtomicUsize::new(0));
+            let mut transfer = MediaTransfer::new(Media { reader: Box::new(Short {
+                bytes: std::io::Cursor::new(bytes.clone()), width, calls: calls.clone() }),
+                length: bytes.len(), cleanup: None }, [('i', "7".into())].into());
+            let mut encoded = String::new();
+            loop {
+                let previous = calls.load(Ordering::Relaxed);
+                let (done, output) = transfer.step().unwrap();
+                assert_eq!(previous + 1, calls.load(Ordering::Relaxed));
+                let mut start = 0;
+                for end in 0..output.len().saturating_sub(1) {
+                    if &output[end..end + 2] == b"\x1b\\" {
+                        let (keys, payload) = parse_apc(&output[start..end + 2]).unwrap();
+                        if numeric(&keys, 'm') == 1 { assert!(!payload.contains('=')); }
+                        encoded.push_str(&payload); start = end + 2;
+                    }
+                }
+                if done { break; }
+            }
+            assert_eq!(encode_base64(&bytes), encoded);
+        }
     }
 
     #[test]
@@ -556,6 +612,9 @@ mod tests {
         let mut transport = GraphicsTransport::default();
         let (used, first) = transport.accept_prefix_inner(&input, usize::MAX, |_, _, _, _| Ok(media.take().unwrap()), true);
         assert_eq!(flatten(first), b"before");
+        let partial = transport.advance_media();
+        assert!(partial.replies.is_empty());
+        assert!(flatten(partial).windows(4).all(|part| part != b"m=0;"));
         let failed = transport.advance_media();
         assert_eq!(failed.replies, vec![sequence("i=8", "EIO: media read")]);
         assert_eq!(flatten(failed), CANCEL_TRANSFER);

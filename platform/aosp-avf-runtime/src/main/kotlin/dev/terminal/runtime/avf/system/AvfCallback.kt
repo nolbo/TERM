@@ -47,4 +47,3 @@ internal fun avfCallback(boot: AvfGuestBoot, isCurrent: () -> Boolean, instanceI
             }
         }
     }
-

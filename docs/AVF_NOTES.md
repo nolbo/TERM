@@ -17,6 +17,80 @@ The ten findings from the follow-up review are addressed in the host and guest:
 
 There is no new daemon, connector pool or recovery service. Host changes require an APK update; guest accept, signal and capacity changes require an explicit verified component/image update. Installed disks are not replaced. Real AVF hardware is still required to validate crosvm callbacks and compare end-to-end performance with Userspace Linux.
 
+## Measured simplification candidates (2026-10-29)
+
+The ten lifecycle/capacity fixes were committed first (`386f701`). The four
+candidates were then evaluated without adding a daemon, thread pool, I/O worker,
+wire version or automatic resource controller.
+
+| Candidate | Decision and evidence |
+| --- | --- |
+| A: default CPU policy | Keep the current single-CPU default and existing host-topology option. Add an identical-workload probe for matched AVF/Userspace comparisons. On this four-CPU ARM64 **host**, four workers hashing 2 GiB took median 1.161 s with one allowed CPU and 0.307 s with four; worker CPU time stayed about 1.14/1.13 s. This shows why unequal CPU limits confound comparisons, not AVF performance or phone battery behavior. No AVF target was available to justify changing the default. |
+| B: repeated global drains | Adopt lightweight control service between buffered parser slices. Global input/tail drains stay in normal turns. No new scheduler/worker. |
+| C: synchronous media I/O | Replace repeated read_exact calls with one read attempt per turn and at most two carried raw bytes. Short reads and EINTR yield while preserving base64 and final-commit ordering. Do not add a worker pool or restrict normal regular-file paths. Slow individual canonicalize/open/read/stat/unlink calls remain a limitation. |
+| D: duplicate frame prefetch | Explicitly cap the direct transport at eight frames. Zero/one-frame variants saved more queue space but reduced bulk throughput further in the local Android probe. Eight frames preserve a small batch while cutting queued payload capacity by 87.5%. |
+
+B was measured in five alternating release-build runs against `386f701` using
+`python3 tests/benchmarks/avf_sessiond_overhead.py --baseline 386f701 --runs 5`.
+The new fixture isolates scans using empty staged parser work and live empty tails;
+it does **not** measure full media conversion or VM/terminal latency.
+
+| Buffered sessions | Before, median µs/turn | After, median µs/turn |
+| --- | ---: | ---: |
+| 1 | 2.018 | 1.965 |
+| 8 | 14.408 | 11.178 |
+| 32 | 116.601 | 42.012 |
+| 64 | 449.705 | 90.306 |
+
+For C, `python3 tests/benchmarks/avf_media_io.py --baseline 386f701` and the same
+command without `--baseline` build temporary release probes. Cached local-file
+21 KiB conversion steps had p50 41.760→41.640 µs in this sample; no local-file
+speedup is claimed. An injected reader returning three bytes every 5 ms held the
+old first turn for 41.221 ms, versus 5.081 ms before yielding with the change.
+Total transfer work still needs all eight reads. A single injected 50 ms read
+still occupied about 50 ms in both versions. Thus this mitigates repeated short
+reads, **not** arbitrary filesystem stalls. Truncation/cleanup errors still cancel
+multipart output before m=0 and preserve an incompletely consumed source.
+
+For D, the opt-in `FramePrefetchBenchmarkDeviceTest` uses Android native socket
+pairs, the production frame codec/flow shape, 1-byte round trips and validated
+16 MiB bulk streams with 8 KiB frames. Two warm-up cycles precede five alternating
+runs on ReDroid ARM64 Android 15. Medians of per-run measurements:
+
+| Prefetched frames | Echo p50 µs | Echo p95 µs | Bulk MiB/s |
+| --- | ---: | ---: | ---: |
+| 64 | 133.361 | 207.321 | 231.697 |
+| 0 | 126.720 | 186.520 | 221.400 |
+| 1 | 128.641 | 202.361 | 224.029 |
+| 8 (selected) | 130.880 | 197.081 | 228.948 |
+
+The selected bulk change is about -1.2%, with overlapping sample ranges. The
+queue payload ceiling changes from 64 MiB to 8 MiB for maximum protocol frames,
+or 512 KiB to 64 KiB for 8 KiB frames; producer/consumer in-flight payloads, the
+separate event buffer and VM memory are excluded. This is not an RSS result or a
+vsock/end-to-end speed claim. Run the benchmark with instrumentation argument
+`framePrefetchBenchmark=true`; it is skipped in ordinary test runs.
+
+The CPU probe is `tests/benchmarks/linux_cpu_workload.py --cpus 1 --workers 4`;
+repeat with the same workload and CPU affinity in both execution environments,
+then repeat with host topology and matched CPU counts. Record thermal/power,
+VM memory, startup, interactive p50/p95 and sustained workloads on the actual
+phone before reconsidering the default.
+
+Initial sandbox restrictions prevented Gradle cache access and Unix-socket tests;
+those checks were rerun in the approved execution environment. Validation: 57 guest Rust tests, 72 protocol tests, 493 runtime unit tests
+(one existing opt-in archive test skipped), 26 AOSP driver tests and 70 image
+tests passed. Canonical APK/runtime/image verification passed. Android MCP
+confirmed five socket cancellation, sibling-PTY isolation and output/checkpoint
+ordering checks; the opt-in prefetch probe also passed. The benchmark initially
+needed array-content comparison and cancellation-safe fixture cleanup; those
+fixture errors were corrected before collecting the table above. Jev source
+export remained disallowed by the previous automatic approval review, so local
+review and actual tests were used. No AVF feature is exposed by this device;
+real VM callback timing, sustained battery/CPU cost and AVF-versus-Userspace
+performance remain unverified. Guest changes need a verified component/image
+update; this work does not publish an image or replace installed disks.
+
 ## Direct session transport and independent PTYs (2026-10-28)
 
 This revision supersedes the guest relay design in the historical section below.

@@ -110,7 +110,7 @@ impl SessionServer {
                 // POLLIN was omitted only when parser work was already queued.
                 // Reuse that snapshot bit instead of rescanning every idle parser.
                 let buffered = poll.fds[pty_index].events & nix::libc::POLLIN == 0;
-                if buffered { self.service_client(); }
+                if buffered { self.service_client_turn(false); }
                 let exited = poll.readable(pty_index + 1) && self.sessions.exit_fd(id) == Some(poll.fds[pty_index + 1].fd);
                 if exited { self.finish_child(id); }
                 if buffered || exited || poll.readable(pty_index) {
@@ -128,7 +128,11 @@ impl SessionServer {
         result
     }
 
-    fn service_client(&mut self) {
+    fn service_client(&mut self) { self.service_client_turn(true); }
+
+    // Between media steps only receive control and flush framed replies. Global
+    // input/tail drains run once per normal service turn, not once per session.
+    fn service_client_turn(&mut self, drain_queues: bool) {
         let Some(mut client) = self.client.take() else { return; };
         let result = (|| -> Result<(), VsockError> {
             client.connection.flush_output()?;
@@ -166,21 +170,23 @@ impl SessionServer {
                     }
                 }
             }
-            self.drain_input(Some(&mut client.connection))?;
-            // BTreeMap order + one reusable cursor gives fair turns without
-            // copying/sorting all pending IDs on every output packet.
-            for _ in 0..self.output.tails.len() {
-                if !client.connection.has_pty_capacity() { break; }
-                use std::ops::Bound::{Excluded, Unbounded};
-                let next = self.output.tails.range::<str, _>((Excluded(self.output_cursor.as_str()), Unbounded))
-                    .next().or_else(|| self.output.tails.first_key_value()).map(|(id, _)| id);
-                let Some(next) = next else { break; };
-                self.output_cursor.clone_from(next);
-                if client.known.contains(&self.output_cursor) && self.output.has_pending(&self.output_cursor) {
-                    let id = std::mem::take(&mut self.output_cursor);
-                    let result = self.flush_tail(&mut client.connection, &id);
-                    self.output_cursor = id;
-                    result?;
+            if drain_queues {
+                self.drain_input(Some(&mut client.connection))?;
+                // BTreeMap order + one reusable cursor gives fair turns without
+                // copying/sorting all pending IDs on every output packet.
+                for _ in 0..self.output.tails.len() {
+                    if !client.connection.has_pty_capacity() { break; }
+                    use std::ops::Bound::{Excluded, Unbounded};
+                    let next = self.output.tails.range::<str, _>((Excluded(self.output_cursor.as_str()), Unbounded))
+                        .next().or_else(|| self.output.tails.first_key_value()).map(|(id, _)| id);
+                    let Some(next) = next else { break; };
+                    self.output_cursor.clone_from(next);
+                    if client.known.contains(&self.output_cursor) && self.output.has_pending(&self.output_cursor) {
+                        let id = std::mem::take(&mut self.output_cursor);
+                        let result = self.flush_tail(&mut client.connection, &id);
+                        self.output_cursor = id;
+                        result?;
+                    }
                 }
             }
             client.connection.flush_output()

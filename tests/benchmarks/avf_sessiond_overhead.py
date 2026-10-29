@@ -60,7 +60,12 @@ def main():
             conversion += "assert!(bytes > 8 * 1024 * 1024);"
             fixture = (template.replace("__ENCODE_EVENT__", encode).replace("__MEDIA_PATH__", json.dumps(media))
                        .replace("__MEDIA_COMMAND__", rust_command).replace("__CONVERT_MEDIA__", conversion))
-            (directory / "src/overhead.rs").write_text(fixture)
+            if "Result<&Session, PtyError>" in (directory / "src/session.rs").read_text():
+                fixture = fixture.replace('create_shell("/bin/sh", "/", 24, 80).id', 'create_shell("/bin/sh", "/", 24, 80).unwrap().id')
+            buffered = Path(__file__).with_name("avf_buffered_sessions.rs").read_text()
+            if "staged_output:" not in (directory / "src/server.rs").read_text():
+                buffered = ""
+            (directory / "src/overhead.rs").write_text(fixture + buffered)
             with (directory / "src/server.rs").open("a") as output:
                 output.write('\n#[cfg(test)] mod overhead { include!("overhead.rs"); }\n')
             command_args = [cargo, "test", "--offline", "--release", "--manifest-path", str(directory / "Cargo.toml"), "--no-run"]
@@ -70,7 +75,10 @@ def main():
                 result = subprocess.run([cargo, "test", "--offline", "--release", "--manifest-path", str(directory / "Cargo.toml"),
                     "server::overhead::overhead", "--", "--ignored", "--exact", "--nocapture", "--test-threads=1"],
                     check=True, cwd=repo, capture_output=True, text=True)
-                for line in result.stdout.splitlines():
+                buffered_result = subprocess.run([cargo, "test", "--offline", "--release", "--manifest-path", str(directory / "Cargo.toml"),
+                    "server::overhead::buffered_sessions", "--", "--ignored", "--exact", "--nocapture", "--test-threads=1"],
+                    check=True, cwd=repo, capture_output=True, text=True)
+                for line in (result.stdout + buffered_result.stdout).splitlines():
                     if "BENCH " in line:
                         print(f"run={run + 1} revision={name} {line[line.index('BENCH '):]}", flush=True)
 
