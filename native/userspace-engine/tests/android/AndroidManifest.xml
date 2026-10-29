@@ -5,4 +5,6 @@
         android:label="Userspace engine entry probe" android:allowBackup="false" />
     <instrumentation android:name="dev.terminal.ueprobe.EntryProbe"
         android:targetPackage="dev.terminal.ueprobe" android:functionalTest="true" />
+    <instrumentation android:name="dev.terminal.ueprobe.LoaderProbe"
+        android:targetPackage="dev.terminal.ueprobe" android:functionalTest="true" />
 </manifest>

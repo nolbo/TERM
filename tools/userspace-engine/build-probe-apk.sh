@@ -16,9 +16,10 @@ work=$(mktemp -d /tmp/term-ue-probe-apk.XXXXXX)
 trap 'rm -rf -- "$work"' EXIT
 mkdir "$work/classes" "$work/dex"
 javac --release 17 -classpath "$jar" -d "$work/classes" \
-    "$root/native/userspace-engine/tests/android/EntryProbe.java"
+    "$root/native/userspace-engine/tests/android/EntryProbe.java" \
+    "$root/native/userspace-engine/tests/android/LoaderProbe.java"
 "$build_tools/d8" --lib "$jar" --min-api 31 --output "$work/dex" \
-    "$work/classes/dev/terminal/ueprobe/EntryProbe.class"
+    "$work/classes/dev/terminal/ueprobe/"*.class
 "$aapt2" link \
     --manifest "$root/native/userspace-engine/tests/android/AndroidManifest.xml" \
     -I "$jar" -o "$work/unsigned.apk"
@@ -32,6 +33,26 @@ with zipfile.ZipFile(sys.argv[1], 'a', compression=zipfile.ZIP_DEFLATED) as apk:
         'sha256': hashlib.sha256(pathlib.Path(sys.argv[3]).read_bytes()).hexdigest()
     }) + '\n')
 PY
+if [[ ${UE_TEST_INCLUDE_LOADER:-0} == 1 ]]; then
+    loader="$root/native/userspace-engine/target/aarch64-linux-android/release/ue-loader-probe"
+    python3 "$root/tools/userspace-engine/check-probe-elf.py" "$loader"
+    "${CC:-gcc}" -O2 -Wall -Wextra -Werror -static -fno-pie -no-pie \
+        "$root/native/userspace-engine/tests/loader-fixture.c" -o "$work/static-exec"
+    "${CC:-gcc}" -O2 -Wall -Wextra -Werror -static-pie -fPIE \
+        "$root/native/userspace-engine/tests/loader-fixture.c" -o "$work/static-pie"
+    python3 - "$work/unsigned.apk" "$loader" "$work/static-exec" "$work/static-pie" <<'PY'
+import hashlib, json, pathlib, sys, zipfile
+with zipfile.ZipFile(sys.argv[1], 'a', compression=zipfile.ZIP_DEFLATED) as apk:
+    apk.write(sys.argv[2], 'lib/arm64-v8a/libue-loader-probe.so')
+    for filename in sys.argv[3:]:
+        apk.write(filename, 'assets/' + pathlib.Path(filename).name)
+    apk.writestr('assets/loader.json', json.dumps({
+        'kind': 'loader-probe', 'productionEngine': False,
+        'sha256': {pathlib.Path(f).name: hashlib.sha256(pathlib.Path(f).read_bytes()).hexdigest()
+                   for f in sys.argv[2:]}
+    }) + '\n')
+PY
+fi
 "$build_tools/apksigner" sign --ks "$keystore" --ks-pass pass:android \
     --out "$output" "$work/unsigned.apk"
 "$build_tools/apksigner" verify "$output"

@@ -12,10 +12,18 @@ ue-platform = { path = "../ue-platform" }
 
 [features]
 entry-probe = []
+loader-probe = []
 
 [[bin]]
 name = "ue-entry-probe"
 path = "src/bin/entry-probe.rs"
 required-features = ["entry-probe"]
+test = false
+bench = false
+
+[[bin]]
+name = "ue-loader-probe"
+path = "src/bin/loader-probe.rs"
+required-features = ["loader-probe"]
 test = false
 bench = false

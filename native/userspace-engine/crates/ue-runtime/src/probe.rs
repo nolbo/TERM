@@ -11,7 +11,7 @@ use ue_platform::{aarch64::{gate_ip, syscall, synchronize_code, ue_sigreturn},
 static INSTALLED: AtomicBool = AtomicBool::new(false);
 static TRAPS: AtomicU64 = AtomicU64::new(0);
 pub const VIRTUAL_UID: i64 = 12345;
-const CREDENTIALS: Credentials = Credentials { uid: VIRTUAL_UID as u32, euid: VIRTUAL_UID as u32, gid: 23456, egid: 23456 };
+pub const CREDENTIALS: Credentials = Credentials { uid: VIRTUAL_UID as u32, euid: VIRTUAL_UID as u32, gid: 23456, egid: 23456 };
 
 pub fn trap_count() -> u64 { TRAPS.load(Ordering::Relaxed) }
 

@@ -1,0 +1,150 @@
+{
+  "scope": "ARM64 host loader, not Android policy or engine superiority",
+  "page_size": 4096,
+  "loader_sha256": "0984de9ba7ad4a84e1bfd784f659e70d97289fa4781e58d72eee68fb4e56440d",
+  "cases": [
+    {
+      "case": "dynamic-pie",
+      "mode": "native-syscalls",
+      "status": "pass",
+      "sha256": "cf1e75aa2206b58bb2c91e244d879de05628d21e80087bf07a92fe1c9d6e0c5d"
+    },
+    {
+      "case": "dynamic-pie",
+      "mode": "probe-trap",
+      "status": "pass",
+      "sha256": "cf1e75aa2206b58bb2c91e244d879de05628d21e80087bf07a92fe1c9d6e0c5d"
+    },
+    {
+      "case": "dynamic-exec",
+      "mode": "native-syscalls",
+      "status": "pass",
+      "sha256": "d0c4f455b93a538dbb6649066fb257a72079d4ca0e50b5f5a29d46e449c49543"
+    },
+    {
+      "case": "dynamic-exec",
+      "mode": "probe-trap",
+      "status": "pass",
+      "sha256": "d0c4f455b93a538dbb6649066fb257a72079d4ca0e50b5f5a29d46e449c49543"
+    },
+    {
+      "case": "static-exec",
+      "mode": "native-syscalls",
+      "status": "pass",
+      "sha256": "8f080d94566e11f9502b5b1ba7c1f01b3038ff29e0f53620b24d03b8c4e62b54"
+    },
+    {
+      "case": "static-exec",
+      "mode": "probe-trap",
+      "status": "pass",
+      "sha256": "8f080d94566e11f9502b5b1ba7c1f01b3038ff29e0f53620b24d03b8c4e62b54"
+    },
+    {
+      "case": "static-pie",
+      "mode": "native-syscalls",
+      "status": "pass",
+      "sha256": "9e66f5464074a2fae5c11950acc9a4379e34a57d2965769a51f62c73025ea0f4"
+    },
+    {
+      "case": "static-pie",
+      "mode": "probe-trap",
+      "status": "pass",
+      "sha256": "9e66f5464074a2fae5c11950acc9a4379e34a57d2965769a51f62c73025ea0f4"
+    },
+    {
+      "case": "system-echo",
+      "status": "pass"
+    },
+    {
+      "case": "system-id-trap",
+      "status": "pass"
+    },
+    {
+      "case": "truncated",
+      "status": "pass"
+    },
+    {
+      "case": "non-executable",
+      "status": "pass"
+    },
+    {
+      "case": "setuid",
+      "status": "pass"
+    },
+    {
+      "case": "fifo-no-block",
+      "status": "pass"
+    },
+    {
+      "case": "directory",
+      "status": "pass"
+    },
+    {
+      "case": "wrong-architecture",
+      "status": "pass"
+    },
+    {
+      "case": "wx-segment",
+      "status": "pass"
+    },
+    {
+      "case": "executable-stack",
+      "status": "pass"
+    },
+    {
+      "case": "missing-interpreter",
+      "status": "pass"
+    },
+    {
+      "case": "address-collision",
+      "status": "pass"
+    }
+  ],
+  "date": "2026-10-29",
+  "host_checks": {
+    "command": "tools/userspace-engine/test.sh",
+    "status": "pass",
+    "rust_unit_tests": 16,
+    "rollback_cycles": 64,
+    "rollback_cases_per_cycle": [
+      "successful-load-drop",
+      "missing-interpreter-after-main-mapping"
+    ],
+    "kernel_uapi_layout": "pass",
+    "entry_regression": "pass",
+    "loader_case_count": 20,
+    "shell_python_syntax_and_diff_whitespace": "pass"
+  },
+  "android": {
+    "environment": "redroid ARM64 API 35",
+    "page_size": 4096,
+    "selinux": "Disabled",
+    "inherited_seccomp_mode": 0,
+    "apk_sha256": "91f2db4b0adeeab1429202f4bafebe4f871a37b606a3b5e349d944eec576a152",
+    "artifacts": {
+      "ue-loader-probe": "11c61f0f1ee97f56643dda6ab82c44ae3eacce2b07742ce47fa037405fc63635",
+      "static-exec": "8f080d94566e11f9502b5b1ba7c1f01b3038ff29e0f53620b24d03b8c4e62b54",
+      "static-pie": "9e66f5464074a2fae5c11950acc9a4379e34a57d2965769a51f62c73025ea0f4"
+    },
+    "build_and_artifact_checks": "pass",
+    "zygote_instrumentation": "dev.terminal.ueprobe.LoaderProbe",
+    "fixture_results": {
+      "static-exec native-syscalls": "pass",
+      "static-exec trap": "pass",
+      "static-pie native-syscalls": "pass",
+      "static-pie trap": "pass"
+    },
+    "instrumentation_code": 1,
+    "platform_gate": "fail: inherited app seccomp mode 2 absent; enforcing policy untested",
+    "installation": "incremental rejected; streamed fallback succeeded"
+  },
+  "not_proven": [
+    "production Android execution",
+    "16 KiB execution",
+    "guest exec/handoff",
+    "guest signals/process/VFS",
+    "executable write exclusion",
+    "guest brk and bootstrap-memory reclamation",
+    "compatibility or overall/interactive performance superiority over accelerated PRoot"
+  ]
+}

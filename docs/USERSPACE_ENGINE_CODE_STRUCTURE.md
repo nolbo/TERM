@@ -3,7 +3,7 @@
 2026-10-29. [기본 설계](USERSPACE_ENGINE_DESIGN.md)와
 [실행 계약](USERSPACE_ENGINE_EXECUTION.md)을 구현할 파일 경계, 내부 인터페이스,
 상태 소유권과 검증 순서로 구체화한다. 아래 경로와 코드 선언은 **전체 구현 명세**다.
-실제 workspace에는 초기 네 crate와 entry probe가 있으며, 전체 명세가 구현된 것은
+실제 workspace에는 초기 네 crate와 entry/ELF loader probe가 있으며, 전체 명세가 구현된 것은
 아니다. 현재 코드·검증·설계 조정은 [구현 현황](USERSPACE_ENGINE_IMPLEMENTATION.md)을 따른다.
 
 ## 1. 코드 배치와 빌드 경계

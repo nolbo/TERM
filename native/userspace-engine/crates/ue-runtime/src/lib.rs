@@ -2,3 +2,6 @@
 
 #[cfg(target_arch = "aarch64")]
 pub mod probe;
+
+#[cfg(target_arch = "aarch64")]
+pub mod loader;

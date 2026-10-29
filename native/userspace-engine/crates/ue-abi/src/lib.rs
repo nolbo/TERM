@@ -28,11 +28,14 @@ impl RawReturn {
 }
 
 pub mod nr {
+    pub const FACCESSAT: u64 = 48;
     pub const OPENAT: u64 = 56;
     pub const CLOSE: u64 = 57;
     pub const PIPE2: u64 = 59;
     pub const READ: u64 = 63;
     pub const WRITE: u64 = 64;
+    pub const PREAD64: u64 = 67;
+    pub const FSTAT: u64 = 80;
     pub const EXIT_GROUP: u64 = 94;
     pub const CLOCK_GETTIME: u64 = 113;
     pub const RT_SIGACTION: u64 = 134;
