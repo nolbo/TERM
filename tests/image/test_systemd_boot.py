@@ -63,7 +63,7 @@ class NormalSystemdBootTests(unittest.TestCase):
         magic = struct.pack('!I', 0x54465431)
         digest = boot.session_probe.hashlib.sha256(marker).digest()
         good = magic + b'\0' + struct.pack('!Q', len(marker)) + marker + digest
-        for response in [good, b'BAD!', magic + b'\1', magic + b'\0' + struct.pack('!Q', 999),
+        for response in [good, b'BAD!', magic + b'\2', magic + b'\0' + struct.pack('!Q', 999),
                          good[:-1] + b'!', good[:-1]]:
             with self.subTest(response=response), mock.patch.object(boot.session_probe.socket, 'socket') as factory:
                 wire = Connection(response)
@@ -79,11 +79,19 @@ class NormalSystemdBootTests(unittest.TestCase):
                         boot.session_probe.read_completion(123, 'fixture/done', marker)
                     self.assertFalse(wire.sent.endswith(b'\0' + digest))
 
+        with mock.patch.object(boot.session_probe.socket, 'socket') as factory:
+            wire = Connection(magic + b'\1')
+            connection = factory.return_value.__enter__.return_value
+            connection.recv.side_effect = wire.recv
+            connection.sendall.side_effect = wire.sendall
+            with self.assertRaises(FileNotFoundError):
+                boot.session_probe.read_completion(123, 'fixture/done', marker)
+
     def test_completion_wait_retries_missing_file_but_is_bounded(self):
-        with mock.patch.object(boot.session_probe, 'read_completion', side_effect=[EOFError(), None]) as read, \
+        with mock.patch.object(boot.session_probe, 'read_completion', side_effect=[FileNotFoundError(), EOFError(), None]) as read, \
                 mock.patch.object(boot.session_probe.time, 'sleep'):
             boot.session_probe.wait_completion(123, 'fixture/done', b'token')
-            self.assertEqual(2, read.call_count)
+            self.assertEqual(3, read.call_count)
         with mock.patch.object(boot.session_probe, 'read_completion', side_effect=EOFError()), \
                 mock.patch.object(boot.session_probe.time, 'monotonic', side_effect=[0, 0, 121]), \
                 mock.patch.object(boot.session_probe.time, 'sleep'):

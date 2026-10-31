@@ -48,7 +48,10 @@ def read_completion(cid, path, marker):
         if exact(connection, 4) != magic:
             raise RuntimeError('Invalid completion transfer greeting')
         connection.sendall(magic + b'\2' + text(path))
-        if exact(connection, 1) != b'\0':
+        status = exact(connection, 1)
+        if status == b'\1':
+            raise FileNotFoundError('Completion file is not available yet')
+        if status != b'\0':
             raise RuntimeError('Completion transfer rejected')
         if struct.unpack('!Q', exact(connection, 8))[0] != len(marker):
             raise RuntimeError('Invalid completion marker size')
@@ -163,7 +166,8 @@ class SessionProbe:
         directory = '/home/droid/term-transfers/' + path.rsplit('/', 1)[0]
         self.run(f'mkdir -p {directory}')
         arguments = ['/bin/sh', '-c',
-                     f'sleep 1; head -c 33554432 /dev/zero && printf {marker.decode()} > {directory}/done; exit 7']
+                     f'sleep 1; head -c 33554432 /dev/zero && printf {marker.decode()} > {directory}/pending '
+                     f'&& mv {directory}/pending {directory}/done; exit 7']
         encoded = '3:' + ''.join(f'{len(arg.encode())}:{arg}' for arg in arguments)
         created = self.request(b'\1' + text('/bin/sh') + text('/') + struct.pack('!HHH', 24, 80, 1)
                                + text('DROID_SESSION_ARGV') + text(encoded))
