@@ -128,7 +128,11 @@ class SessionProbe:
         length = struct.unpack('!H', created[1:3])[0]
         identity = created[3:3 + length].decode()
         self.application.close()
-        time.sleep(4)
+        # The factory uses TCG while systemd is still starting other services.
+        # This is a progress check, not a native-host throughput benchmark. Keep
+        # the socket absent for the entire bounded grace period; never poll LIST
+        # while waiting, since reconnecting could unblock a broken output loop.
+        time.sleep(30)
         await_connection(self.connect)
         payload = self.request(b'\2')
         assert payload[0] == 0x82
@@ -143,7 +147,8 @@ class SessionProbe:
             _, _, _, state, code = struct.unpack('!qHHBi', payload[offset:offset + 17])
             offset += 17
             if fields[0] == identity:
-                assert (state, code) == (2, 7), 'Disconnected viewer blocked guest process exit'
+                assert (state, code) == (2, 7), (
+                    f'Disconnected viewer progress failed: state={state}, exitCode={code} after 30s offline')
                 found = True
         assert found and offset == len(payload)
         self.request(b'\7' + text(identity) + struct.pack('!i', 9))

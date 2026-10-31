@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import struct
 import unittest
 import threading
 from unittest import mock
@@ -27,6 +28,32 @@ class Connection:
 
 
 class NormalSystemdBootTests(unittest.TestCase):
+    def test_offline_progress_requires_exit_on_first_list_after_disconnected_grace(self):
+        for state, code in [(2, 7), (1, -1), (2, 127)]:
+            with self.subTest(state=state, code=code):
+                probe = boot.session_probe.SessionProbe.__new__(boot.session_probe.SessionProbe)
+                events = []
+                identity = 'flood-session'
+                created = b'\x81' + boot.session_probe.text(identity)
+                listed = b'\x82\0\1' + b''.join(boot.session_probe.text(value)
+                    for value in [identity, 'Shell', '/bin/sh', '/']) + struct.pack('!qHHBi', 0, 24, 80, state, code)
+                probe.application = mock.Mock()
+                probe.application.close.side_effect = lambda: events.append('close')
+                probe.connect = lambda: events.append('connect')
+                def request(payload):
+                    events.append(payload[0])
+                    return {1: created, 2: listed, 7: b'\x87'}[payload[0]]
+                probe.request = request
+                with mock.patch.object(boot.session_probe.time, 'sleep',
+                        side_effect=lambda seconds: events.append(('offline', seconds))):
+                    if (state, code) == (2, 7):
+                        probe.verify_offline_progress()
+                        self.assertEqual([1, 'close', ('offline', 30), 'connect', 2, 7], events)
+                    else:
+                        with self.assertRaisesRegex(AssertionError, f'state={state}, exitCode={code}'):
+                            probe.verify_offline_progress()
+                        self.assertEqual([1, 'close', ('offline', 30), 'connect', 2], events)
+
     def test_direct_probe_waits_for_listener_before_any_rpc(self):
         connect = mock.Mock(side_effect=[ConnectionResetError('starting'), EOFError('endpoint starting'), None])
         with mock.patch.object(boot.session_probe.time, 'sleep') as wait:
