@@ -2,6 +2,8 @@
 import socket
 import struct
 import time
+import hashlib
+import uuid
 
 
 def exact(connection, length):
@@ -35,6 +37,39 @@ def await_connection(connect, timeout=60):
 def text(value):
     value = value.encode()
     return struct.pack('!H', len(value)) + value
+
+
+def read_completion(cid, path, marker):
+    """Use TFT1, never the session socket, to observe the offline producer."""
+    with socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM) as connection:
+        connection.settimeout(3)
+        connection.connect((cid, 40505))
+        magic = struct.pack('!I', 0x54465431)
+        if exact(connection, 4) != magic:
+            raise RuntimeError('Invalid completion transfer greeting')
+        connection.sendall(magic + b'\2' + text(path))
+        if exact(connection, 1) != b'\0':
+            raise RuntimeError('Completion transfer rejected')
+        if struct.unpack('!Q', exact(connection, 8))[0] != len(marker):
+            raise RuntimeError('Invalid completion marker size')
+        value = exact(connection, len(marker))
+        digest = exact(connection, 32)
+        if value != marker or digest != hashlib.sha256(value).digest():
+            raise RuntimeError('Invalid completion marker or digest')
+        connection.sendall(b'\0' + digest)
+
+
+def wait_completion(cid, path, marker, timeout=120):
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            read_completion(cid, path, marker)
+            return
+        except (OSError, EOFError) as error:
+            last_error = error
+            time.sleep(0.2)
+    raise TimeoutError('Disconnected guest did not publish its completion marker') from last_error
 
 
 class SessionProbe:
@@ -120,7 +155,15 @@ class SessionProbe:
         # Observe EXITED in the first LIST response after an offline flood. Testing
         # a marker in the same shell after reconnect could accidentally let a
         # previously blocked producer finish, hiding the original regression.
-        arguments = ['/bin/sh', '-c', 'sleep 1; head -c 33554432 /dev/zero; exit 7']
+        # The independent file-transfer service observes completion without
+        # draining session output. This tolerates TCG/boot load without making
+        # terminal reconnects part of the condition that releases the producer.
+        marker = uuid.uuid4().hex.encode()
+        path = f'factory-offline-{marker.decode()}/done'
+        directory = '/home/droid/term-transfers/' + path.rsplit('/', 1)[0]
+        self.run(f'mkdir -p {directory}')
+        arguments = ['/bin/sh', '-c',
+                     f'sleep 1; head -c 33554432 /dev/zero && printf {marker.decode()} > {directory}/done; exit 7']
         encoded = '3:' + ''.join(f'{len(arg.encode())}:{arg}' for arg in arguments)
         created = self.request(b'\1' + text('/bin/sh') + text('/') + struct.pack('!HHH', 24, 80, 1)
                                + text('DROID_SESSION_ARGV') + text(encoded))
@@ -128,11 +171,10 @@ class SessionProbe:
         length = struct.unpack('!H', created[1:3])[0]
         identity = created[3:3 + length].decode()
         self.application.close()
-        # The factory uses TCG while systemd is still starting other services.
-        # This is a progress check, not a native-host throughput benchmark. Keep
-        # the socket absent for the entire bounded grace period; never poll LIST
-        # while waiting, since reconnecting could unblock a broken output loop.
-        time.sleep(30)
+        wait_completion(self.cid, path, marker)
+        # The marker follows the completed flood. Allow the leader's final exit
+        # and pidfd collection to run before the first post-disconnect LIST.
+        time.sleep(1)
         await_connection(self.connect)
         payload = self.request(b'\2')
         assert payload[0] == 0x82
@@ -148,7 +190,7 @@ class SessionProbe:
             offset += 17
             if fields[0] == identity:
                 assert (state, code) == (2, 7), (
-                    f'Disconnected viewer progress failed: state={state}, exitCode={code} after 30s offline')
+                    f'Disconnected viewer progress failed after completion marker: state={state}, exitCode={code}')
                 found = True
         assert found and offset == len(payload)
         self.request(b'\7' + text(identity) + struct.pack('!i', 9))

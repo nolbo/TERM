@@ -28,7 +28,7 @@ class Connection:
 
 
 class NormalSystemdBootTests(unittest.TestCase):
-    def test_offline_progress_requires_exit_on_first_list_after_disconnected_grace(self):
+    def test_offline_progress_requires_independent_completion_then_exit_on_first_list(self):
         for state, code in [(2, 7), (1, -1), (2, 127)]:
             with self.subTest(state=state, code=code):
                 probe = boot.session_probe.SessionProbe.__new__(boot.session_probe.SessionProbe)
@@ -38,21 +38,68 @@ class NormalSystemdBootTests(unittest.TestCase):
                 listed = b'\x82\0\1' + b''.join(boot.session_probe.text(value)
                     for value in [identity, 'Shell', '/bin/sh', '/']) + struct.pack('!qHHBi', 0, 24, 80, state, code)
                 probe.application = mock.Mock()
+                probe.cid = 123
+                probe.run = mock.Mock()
                 probe.application.close.side_effect = lambda: events.append('close')
                 probe.connect = lambda: events.append('connect')
                 def request(payload):
                     events.append(payload[0])
                     return {1: created, 2: listed, 7: b'\x87'}[payload[0]]
                 probe.request = request
-                with mock.patch.object(boot.session_probe.time, 'sleep',
+                with mock.patch.object(boot.session_probe, 'wait_completion',
+                        side_effect=lambda *args: events.append('file-completion')), \
+                        mock.patch.object(boot.session_probe.time, 'sleep',
                         side_effect=lambda seconds: events.append(('offline', seconds))):
                     if (state, code) == (2, 7):
                         probe.verify_offline_progress()
-                        self.assertEqual([1, 'close', ('offline', 30), 'connect', 2, 7], events)
+                        self.assertEqual([1, 'close', 'file-completion', ('offline', 1), 'connect', 2, 7], events)
                     else:
                         with self.assertRaisesRegex(AssertionError, f'state={state}, exitCode={code}'):
                             probe.verify_offline_progress()
-                        self.assertEqual([1, 'close', ('offline', 30), 'connect', 2], events)
+                        self.assertEqual([1, 'close', 'file-completion', ('offline', 1), 'connect', 2], events)
+
+    def test_completion_uses_only_file_port_and_verifies_exact_bytes_and_digest(self):
+        marker = b'completion-token'
+        magic = struct.pack('!I', 0x54465431)
+        digest = boot.session_probe.hashlib.sha256(marker).digest()
+        good = magic + b'\0' + struct.pack('!Q', len(marker)) + marker + digest
+        for response in [good, b'BAD!', magic + b'\1', magic + b'\0' + struct.pack('!Q', 999),
+                         good[:-1] + b'!', good[:-1]]:
+            with self.subTest(response=response), mock.patch.object(boot.session_probe.socket, 'socket') as factory:
+                wire = Connection(response)
+                connection = factory.return_value.__enter__.return_value
+                connection.recv.side_effect = wire.recv
+                connection.sendall.side_effect = wire.sendall
+                if response == good:
+                    boot.session_probe.read_completion(123, 'fixture/done', marker)
+                    connection.connect.assert_called_once_with((123, 40505))
+                    self.assertEqual(magic + b'\2' + boot.session_probe.text('fixture/done') + b'\0' + digest, wire.sent)
+                else:
+                    with self.assertRaises((RuntimeError, EOFError)):
+                        boot.session_probe.read_completion(123, 'fixture/done', marker)
+                    self.assertFalse(wire.sent.endswith(b'\0' + digest))
+
+    def test_completion_wait_retries_missing_file_but_is_bounded(self):
+        with mock.patch.object(boot.session_probe, 'read_completion', side_effect=[EOFError(), None]) as read, \
+                mock.patch.object(boot.session_probe.time, 'sleep'):
+            boot.session_probe.wait_completion(123, 'fixture/done', b'token')
+            self.assertEqual(2, read.call_count)
+        with mock.patch.object(boot.session_probe, 'read_completion', side_effect=EOFError()), \
+                mock.patch.object(boot.session_probe.time, 'monotonic', side_effect=[0, 0, 121]), \
+                mock.patch.object(boot.session_probe.time, 'sleep'):
+            with self.assertRaises(TimeoutError):
+                boot.session_probe.wait_completion(123, 'fixture/done', b'token')
+
+    def test_missing_offline_completion_never_reconnects_session(self):
+        probe = boot.session_probe.SessionProbe.__new__(boot.session_probe.SessionProbe)
+        probe.cid, probe.application, probe.run, probe.connect = 123, mock.Mock(), mock.Mock(), mock.Mock()
+        probe.request = mock.Mock(return_value=b'\x81' + boot.session_probe.text('session'))
+        with mock.patch.object(boot.session_probe, 'wait_completion', side_effect=TimeoutError()):
+            with self.assertRaises(TimeoutError):
+                probe.verify_offline_progress()
+        probe.application.close.assert_called_once()
+        probe.connect.assert_not_called()
+        self.assertEqual(1, probe.request.call_count)
 
     def test_direct_probe_waits_for_listener_before_any_rpc(self):
         connect = mock.Mock(side_effect=[ConnectionResetError('starting'), EOFError('endpoint starting'), None])
